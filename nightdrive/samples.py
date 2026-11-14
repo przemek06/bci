@@ -20,6 +20,8 @@ SAMPLES = {
     "metal_screech": -14,
     "laugh": -20,
     "drone": -28,  # lingers after the scary scares
+    "ghost_scream": -11,  # the eyes-closed ghost kills you
+    "ghost_moan": -24,  # ...and announces itself
     "thud": -12,  # the hit
     "car_crash": -12,
     "glass_smash": -14,
@@ -84,6 +86,7 @@ COMPOSITES = {
         ("injured", 0.4),
         ("drone", 1.7),
     ],
+    "scare_ghost": [("ghost_scream", 0.0), ("injured", 0.5), ("drone", 1.7)],
     # creatures announcing themselves
     "creature_deer": [("twig", 0.0), ("appear_deer", 0.15)],
     "creature_yeti": [

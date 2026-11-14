@@ -301,6 +301,7 @@ def build(sr, seed=1):
 # recorded samples played as they are: name -> (sample key, relative volume)
 SAMPLE_SOUNDS = {
     "gasp": ("gasp", 0.8),
+    "ghost_moan": ("ghost_moan", 0.8),
     "exhale": ("exhale", 0.8),
     "panic": ("panic", 1.0),
     "laugh_kid": ("laugh_kid", 0.8),

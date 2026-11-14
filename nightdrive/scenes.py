@@ -4,6 +4,7 @@ import pygame
 
 from . import settings as S
 from .events import AFTERMATH, CATALOGUE, DEAD, IMPACT, QTE, EventDirector
+from .ghost import GhostChallenge
 
 TEXT = (225, 228, 255)
 DIM = (120, 128, 170)
@@ -118,13 +119,17 @@ class DriveScene:
         world.headlights.flicker_enabled = True
         self.rng = random.Random(app.seed)
         self.director = EventDirector(world, self.rng)
+        self.ghost = GhostChallenge(app)  # close-your-eyes scare, see nightdrive/ghost/
         self.auto_timer = self.rng.uniform(*S.AUTO_EVENT_RANGE)
         self.elapsed = 0.0
         self._prev_state = self.director.state
         self._was_flickering = False
+        self._ghost_was_active = False
 
     def on_distracted(self, event=None):
         """Called when the player's attention drops. For now fired by a timer or the E key."""
+        if self.ghost.active:  # one scare at a time
+            return
         if self.director.trigger(event):
             self.app.sfx.play("riser")
             self.app.sfx.play_appear(self.director.event.name)
@@ -135,10 +140,13 @@ class DriveScene:
         if event.key == pygame.K_ESCAPE:
             self.director.reset()
             self.app.sfx.stop("riser")
+            self.ghost.reset()
             self.app.set_scene(MenuScene(self.app, self.world))
         elif event.key == pygame.K_SPACE:
-            self.world.headlights.toggle()
-            self.app.sfx.play_lights(self.world.headlights.on)
+            # In keyboard mode a ghost challenge means "hold SPACE": that must not flip the lights.
+            if not (self.ghost.active and self.app.eyes.mode == "keyboard"):
+                self.world.headlights.toggle()
+                self.app.sfx.play_lights(self.world.headlights.on)
         elif pygame.K_1 <= event.key <= pygame.K_9:  # debug: trigger a specific event
             index = event.key - pygame.K_1
             if index < len(CATALOGUE) and not self.director.active:
@@ -147,8 +155,10 @@ class DriveScene:
             letter = chr(event.key).upper()
             if self.director.state == QTE:
                 self.director.press(letter)
-            elif letter == "E" and not self.director.active:
+            elif letter == "E" and not self.director.active and not self.ghost.active:
                 self.on_distracted()  # debug: trigger an event now
+            elif letter == "G":
+                self.ghost.trigger(busy=self.director.active)  # debug: ghost now
 
     def update(self, dt):
         self.elapsed += dt
@@ -158,7 +168,7 @@ class DriveScene:
         if flickering and not self._was_flickering:
             self.app.sfx.play("zap")
         self._was_flickering = flickering
-        self.app.music.duck = self.director.state in (QTE, IMPACT)
+        self.app.music.duck = self.director.state in (QTE, IMPACT) or self.ghost.active
         sfx = self.app.sfx
         sfx.engine(self.world.speed / S.CRUISE_SPEED)
         sfx.ambience()
@@ -192,7 +202,23 @@ class DriveScene:
             )
             self.director.reset()
             return
-        if not self.director.active:
+        self.ghost.update(dt, busy=self.director.active)
+        if self.ghost.active and not self._ghost_was_active:
+            self.app.sfx.play("ghost_moan")
+        self._ghost_was_active = self.ghost.active
+        if self.ghost.dead:
+            self.app.set_scene(
+                GameOverScene(
+                    self.app,
+                    self.world,
+                    self.ghost.death_event,
+                    self.elapsed,
+                    self.director.saved_count + self.ghost.passed_count,
+                )
+            )
+            self.ghost.reset()
+            return
+        if not self.director.active and not self.ghost.active:
             self.auto_timer -= dt
             if self.auto_timer <= 0:
                 self.on_distracted()
@@ -206,6 +232,7 @@ class DriveScene:
         elif d.message:
             draw_text(surf, d.message, self.app.font_big, GOOD, center=(S.W // 2, 40))
         self._draw_headlight_hint(surf)
+        self.ghost.draw(surf)
         if self.elapsed < 5:
             alpha = 255 if self.elapsed < 3.5 else int(255 * (5 - self.elapsed) / 1.5)
             hint = self.app.font_small.render(

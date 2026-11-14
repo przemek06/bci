@@ -4,6 +4,7 @@ import pygame
 
 from . import settings as S
 from .art import Art
+from .attention.eyes_source import make_eyes_source
 from .audio import Music
 from .scenes import MenuScene
 from .sfx import Sfx
@@ -11,7 +12,7 @@ from .world import World
 
 
 class App:
-    def __init__(self, seed=None, audio=True):
+    def __init__(self, seed=None, eyes="keyboard", eyes_log=True, audio=True):
         pygame.init()
         pygame.display.set_caption("Night Drive")
         self.fullscreen = False
@@ -29,6 +30,10 @@ class App:
         self.assets = Art()
         self.music = Music(enabled=audio)
         self.sfx = Sfx(enabled=audio)
+        self.eyes = make_eyes_source(
+            eyes, log=eyes_log
+        )  # "are the eyes closed?" for the ghost scare
+        self.eyes.start()
         self.scene = MenuScene(self, World(self.assets, seed))
 
     def set_scene(self, scene):
@@ -71,10 +76,12 @@ class App:
                     self.sfx.toggle_mute()
                 else:
                     self.scene.handle_event(event)
+            self.eyes.update()  # keeps calibration + live alpha log running in every scene
             self.scene.update(dt)
             self.music.update(dt)
             self.scene.draw(self.canvas)
             self.present()
+        self.eyes.stop()
         pygame.quit()
 
 
@@ -83,5 +90,16 @@ def main():
     parser.add_argument(
         "--seed", type=int, default=None, help="seed for the generated road"
     )
+    parser.add_argument(
+        "--eyes",
+        choices=("keyboard", "bci"),
+        default="keyboard",
+        help="ghost scare input: hold SPACE (keyboard) or alpha waves from the headset (bci)",
+    )
+    parser.add_argument(
+        "--no-eyes-log",
+        action="store_true",
+        help="don't print live alpha values to the console",
+    )
     args = parser.parse_args()
-    App(args.seed).run()
+    App(args.seed, args.eyes, eyes_log=not args.no_eyes_log).run()

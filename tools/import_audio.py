@@ -37,6 +37,8 @@ SFX = {
     "metal_screech": f"{HORROR}/Ambient/Screech_metalic_dragging_3.wav",
     "laugh": f"{HORROR}/Monsters & Ghosts/Child laugh.wav",
     "drone": f"{HORROR}/Ambient/Drone_doom.wav",
+    "ghost_scream": f"{HORROR}/Monsters & Ghosts/Ghost_scream_3.wav",
+    "ghost_moan": f"{HORROR}/Monsters & Ghosts/Ghost_moan_2.wav",
     "thud": f"{DARKWORLD}/Combat/DesignedPunch3.wav",
     "car_crash": f"{DARKWORLD}/Destruction/DesignedCarCrash1.wav",
     "glass_smash": f"{DARKWORLD}/Destruction/LargeGlassMirrorSmash1.wav",

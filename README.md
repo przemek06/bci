@@ -13,7 +13,8 @@ python -m nightdrive
 
 Keys: Enter/arrows in the menu, `Esc` back, `F11` fullscreen, `F10` mute all audio.
 While driving: `Space` toggles the headlights (they flicker now and then: switch them off and on again).
-Debug while driving: `E` random event, `1`-`7` a specific event.
+The close-your-eyes ghost: `python -m nightdrive --eyes keyboard` (hold `Space` for closed eyes, default) or `--eyes bci` (headset, see `CLAUDE.md`).
+Debug while driving: `G` ghost now, `E` random event, `1`-`7` a specific event.
 
 Sound effects are a mix of synthesised sounds and recorded effects. `python -m nightdrive.sfx` lets you audition them (the jump-scare
 sounds are loud: lower your volume first, and tune `SFX_VOLUME` in `nightdrive/settings.py`).

@@ -15,3 +15,5 @@ assets/audio/sfx/
 *.mp3
 *.ogg
 *.flac
+# archives of the audio folder (e.g. assets.zip) must not slip in either
+*.zip

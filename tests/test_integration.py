@@ -70,3 +70,86 @@ def test_ghost_has_sounds_and_death_screen_plays_them():
     over.draw(app.canvas)  # uses the jump-scare image the ghost package registered
     assert over.event.name == "ghost"
     pygame.quit()
+
+
+# --- eye gaze (webcam/mouse tracking) together with the ghost, audio and headlights ----------
+
+
+def fake_gaze():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        ready=True,
+        point=None,
+        source=SimpleNamespace(needs_calibration=False, status=lambda: "ok"),
+        update=lambda: None,
+        stop=lambda: None,
+    )
+
+
+def test_app_accepts_all_options_together():
+    """audio + ghost eyes + gaze: every constructor argument from every branch works at once."""
+    app = App(1, "keyboard", False, False, "mouse", [0], "mediapipe")
+    assert (
+        app.gaze is not None and app.eyes.mode == "keyboard" and app.music.ok is False
+    )
+    for _ in range(3):  # a few frames through the loop pieces: no crash
+        app.eyes.update()
+        app.gaze.update()
+        app.scene.update(1 / 60)
+        app.scene.draw(app.canvas)
+    app.disable_gaze()
+    pygame.quit()
+
+
+def test_menu_has_eye_tracking_entry_and_still_quits():
+    app = App(seed=1, audio=False)
+    assert app.scene.options == ["START", "EYE TRACKING: OFF", "QUIT"]
+    app.scene.selected = 2
+    app.scene.handle_event(key(pygame.K_RETURN))
+    assert app.running is False
+    pygame.quit()
+
+
+def test_g_is_the_ghost_and_tab_toggles_the_gaze_marker():
+    app = start_drive()
+    drive = app.scene
+    assert app.show_gaze is True
+    drive.handle_event(key(pygame.K_TAB))
+    assert app.show_gaze is False
+    drive.handle_event(key(pygame.K_TAB))
+    assert app.show_gaze is True
+    drive.handle_event(key(pygame.K_g))
+    assert drive.ghost.active  # G spawns the ghost, it does not touch the gaze marker
+    assert app.show_gaze is True
+    pygame.quit()
+
+
+def test_gaze_distraction_replaces_the_timer_but_never_interrupts_a_ghost():
+    app = start_drive()
+    drive = app.scene
+    app.gaze = fake_gaze()
+    drive.gaze_monitor.update = lambda dt, point: (
+        True
+    )  # "the player looked away long enough"
+    assert drive.ghost.trigger()
+    drive.update(1 / 60)
+    assert not drive.director.active  # a ghost is running: no road event on top of it
+    drive.ghost.reset()
+    drive.update(1 / 60)
+    assert drive.director.active  # gaze triggers the road event
+    pygame.quit()
+
+
+def test_gaze_does_not_run_the_random_timer_when_ready():
+    app = start_drive()
+    drive = app.scene
+    app.gaze = fake_gaze()
+    drive.gaze_monitor.update = lambda dt, point: False
+    drive.auto_timer = 0.0  # would fire immediately without gaze
+    drive.update(1 / 60)
+    assert not drive.director.active
+    app.gaze = None  # no gaze: the timer is back
+    drive.update(1 / 60)
+    assert drive.director.active
+    pygame.quit()

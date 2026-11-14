@@ -4,6 +4,7 @@ import pygame
 
 from . import settings as S
 from .events import AFTERMATH, CATALOGUE, DEAD, IMPACT, QTE, EventDirector
+from .gaze.tracker import GazeMonitor
 from .ghost import GhostChallenge
 
 TEXT = (225, 228, 255)
@@ -23,8 +24,6 @@ def draw_text(surf, text, font, color, center=None, topleft=None, shadow=(5, 6, 
 
 
 class MenuScene:
-    OPTIONS = ("START", "QUIT")
-
     def __init__(self, app, world):
         self.app = app
         self.world = world
@@ -39,21 +38,42 @@ class MenuScene:
         self.veil = pygame.Surface((S.W, S.H), pygame.SRCALPHA)
         self.veil.fill((2, 3, 12, 110))
 
+    @property
+    def options(self):
+        gaze = self.app.gaze
+        opts = ["START", "EYE TRACKING: ON" if gaze else "EYE TRACKING: OFF"]
+        if gaze and gaze.source.needs_calibration:
+            opts.append("CALIBRATE EYES" if gaze.ready else "CALIBRATE EYES (REQUIRED)")
+        opts.append("QUIT")
+        return opts
+
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN:
             return
+        n = len(self.options)
         if event.key in (pygame.K_UP, pygame.K_w):
-            self.selected = (self.selected - 1) % len(self.OPTIONS)
+            self.selected = (self.selected - 1) % n
         elif event.key in (pygame.K_DOWN, pygame.K_s):
-            self.selected = (self.selected + 1) % len(self.OPTIONS)
+            self.selected = (self.selected + 1) % n
         elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
             self._choose()
         elif event.key == pygame.K_ESCAPE:
             self.app.quit()
 
     def _choose(self):
-        if self.OPTIONS[self.selected] == "START":
+        choice = self.options[self.selected]
+        if choice == "START":
             self.app.set_scene(DriveScene(self.app, self.world))
+        elif choice.startswith("EYE TRACKING"):
+            if self.app.gaze:
+                self.app.disable_gaze()
+            else:
+                self.app.enable_gaze()
+            self.selected = min(self.selected, len(self.options) - 1)
+        elif choice.startswith("CALIBRATE"):
+            from .calibration_scene import CalibrationScene
+
+            self.app.set_scene(CalibrationScene(self.app, self.world))
         else:
             self.app.quit()
 
@@ -80,7 +100,7 @@ class MenuScene:
             DIM,
             center=(S.W // 2, 66),
         )
-        for i, label in enumerate(self.OPTIONS):
+        for i, label in enumerate(self.options):
             selected = i == self.selected
             text = f"> {label} <" if selected else label
             draw_text(
@@ -88,24 +108,24 @@ class MenuScene:
                 text,
                 self.app.font,
                 ACCENT if selected else TEXT,
-                center=(S.W // 2, 96 + i * 16),
+                center=(S.W // 2, 88 + i * 14),
             )
         draw_text(
             surf,
             "UP/DOWN + ENTER   F11 FULLSCREEN   F10 MUTE",
             self.app.font_small,
             DIM,
-            center=(S.W // 2, 100 + 52),
+            center=(S.W // 2, 149),
         )
         draw_text(
-            surf, "MUSIC: CROW SHADE", self.app.font_small, DIM, center=(S.W // 2, 161)
+            surf, "MUSIC: CROW SHADE", self.app.font_small, DIM, center=(S.W // 2, 160)
         )
         draw_text(
             surf,
             "SFX: YOURPALROB, DARKWORLD AUDIO, RIRISAURUS",
             self.app.font_small,
             DIM,
-            center=(S.W // 2, 171),
+            center=(S.W // 2, 170),
         )
 
 
@@ -122,6 +142,7 @@ class DriveScene:
         self.ghost = GhostChallenge(app)  # close-your-eyes scare, see nightdrive/ghost/
         self.auto_timer = self.rng.uniform(*S.AUTO_EVENT_RANGE)
         self.elapsed = 0.0
+        self.gaze_monitor = GazeMonitor()
         self._prev_state = self.director.state
         self._was_flickering = False
         self._ghost_was_active = False
@@ -147,6 +168,8 @@ class DriveScene:
             if not (self.ghost.active and self.app.eyes.mode == "keyboard"):
                 self.world.headlights.toggle()
                 self.app.sfx.play_lights(self.world.headlights.on)
+        elif event.key == pygame.K_TAB:  # show/hide the gaze marker
+            self.app.show_gaze = not self.app.show_gaze
         elif pygame.K_1 <= event.key <= pygame.K_9:  # debug: trigger a specific event
             index = event.key - pygame.K_1
             if index < len(CATALOGUE) and not self.director.active:
@@ -218,7 +241,16 @@ class DriveScene:
             )
             self.ghost.reset()
             return
-        if not self.director.active and not self.ghost.active:
+        gaze = self.app.gaze
+        if gaze and gaze.ready:
+            # gaze replaces the placeholder timer: looking away from the road triggers events
+            if (
+                self.gaze_monitor.update(dt, self.app.gaze_canvas_point())
+                and not self.director.active
+                and not self.ghost.active
+            ):
+                self.on_distracted()
+        elif not self.director.active and not self.ghost.active:
             self.auto_timer -= dt
             if self.auto_timer <= 0:
                 self.on_distracted()
@@ -233,6 +265,7 @@ class DriveScene:
             draw_text(surf, d.message, self.app.font_big, GOOD, center=(S.W // 2, 40))
         self._draw_headlight_hint(surf)
         self.ghost.draw(surf)
+        self._draw_gaze(surf)
         if self.elapsed < 5:
             alpha = 255 if self.elapsed < 3.5 else int(255 * (5 - self.elapsed) / 1.5)
             hint = self.app.font_small.render(
@@ -260,6 +293,28 @@ class DriveScene:
                 DIM,
                 center=(S.W // 2, S.H - 46),
             )
+
+    def _draw_gaze(self, surf):
+        gaze = self.app.gaze
+        if not gaze or not self.app.show_gaze:
+            return
+        p = self.app.gaze_canvas_point()
+        if p is None:
+            draw_text(
+                surf,
+                "EYES: "
+                + (
+                    "NOT CALIBRATED" if not gaze.ready else gaze.source.status().upper()
+                ),
+                self.app.font_small,
+                DIM,
+                topleft=(6, 10),
+            )
+            return
+        color = ACCENT if GazeMonitor.is_away(p) else GOOD
+        pos = (int(p.x * S.W), int(p.y * S.H))
+        pygame.draw.circle(surf, color, pos, 4, 1)
+        pygame.draw.circle(surf, color, pos, 1)
 
     def _draw_prompt(self, surf, qte):
         cx, top = S.W // 2, 16

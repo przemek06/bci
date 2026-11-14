@@ -13,6 +13,7 @@ wants the lights toggled, and set `stimulus_hz` to the frequency it looks for.
 Keep the stimulus frequency out of the 8-12 Hz alpha band: the eyes-closed ghost detection uses it.
 """
 
+import math
 import time
 
 import pygame
@@ -22,11 +23,26 @@ from . import settings as S
 from .attention.ssvep import SsvepConfig, SsvepDetector, ssvep_score_db
 
 
+def stimulus_level(now, hz, wave="square"):
+    """Brightness 0..1 of a flickering light at time `now` (seconds).
+
+    "square" is on/off (what `stimulus_lit` says); "sine" is a sampled sinusoid of luminance, which works for
+    any frequency at a given refresh rate (the standard way to stimulate at e.g. 7.5 or 17 Hz on a 60 Hz screen).
+    `hz` <= 0 means steady, fully lit.
+    """
+    if hz <= 0:
+        return 1.0
+    if wave == "sine":
+        return 0.5 * (1.0 + math.sin(2.0 * math.pi * hz * now))
+    return 1.0 if stimulus_lit(now, hz) else 0.0
+
+
 def stimulus_lit(now, hz):
     """Is the flickering button in its lit half-cycle at time `now` (seconds)? 50% duty square wave.
 
-    `hz` <= 0 means "steady": always lit. At 60 FPS, frequencies of 6, 7.5, 10, 15, 20 and 30 Hz
-    fit a whole number of frames per half-cycle, which keeps the stimulus clean.
+    `hz` <= 0 means "steady": always lit. At 60 FPS, the frequencies 30, 15, 10, 7.5 and 6 Hz
+    (60 / 2k) fit a whole number of frames per half-cycle, which keeps the square wave exact; others (20 Hz is
+    1.5 frames per half-cycle) get an uneven duty cycle, so use `stimulus_level` with a sine for those.
     """
     if hz <= 0:
         return True

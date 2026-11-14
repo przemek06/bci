@@ -531,3 +531,142 @@ def test_end_to_end_through_lsl_with_the_simulator(lsl):
 
 def test_pairwise_is_used():
     assert list(itertools.pairwise([1, 2, 3])) == [(1, 2), (2, 3)]
+
+
+# --- choosing between several targets (the demo) ------------------------------------------------------------
+
+from nightdrive.attention.ssvep import SsvepSelector
+
+TARGETS = [6.0, 7.5, 13.0, 17.0]
+
+
+def calibrated_selector(n=4, baseline=-3.0, spread=0.5, cfg=None):
+    sel = SsvepSelector(n, cfg)
+    rng = np.random.default_rng(2)
+    sel.calibrate([baseline + spread * rng.standard_normal(40) for _ in range(n)])
+    return sel
+
+
+def feed_selector(sel, scores, t0=0.0, step=0.25):
+    """Feed the same per-target scores repeatedly; returns (the selected index after each step, final t)."""
+    t, picked = t0, []
+    for _ in range(scores[1] if isinstance(scores, tuple) else 1):
+        pass
+    return picked, t
+
+
+def run_selector(sel, per_target, steps, t0=0.0, step=0.25):
+    picked, t = [], t0
+    for _ in range(steps):
+        t += step
+        picked.append(sel.update(t, per_target).selected)
+    return picked, t
+
+
+def test_selector_needs_baselines_for_every_target_and_scores_for_every_target():
+    sel = SsvepSelector(3)
+    with pytest.raises(ValueError):
+        sel.calibrate([[0.0] * 20, [0.0] * 20])  # two baselines for three targets
+    with pytest.raises(ValueError):
+        sel.calibrate([[0.0] * 20, [0.0] * 20, [0.0] * 3])  # too few scores for one
+    sel.calibrate([[0.0] * 20] * 3)
+    with pytest.raises(ValueError):
+        sel.update(0.0, [1.0, 2.0])
+    with pytest.raises(ValueError):
+        SsvepSelector(0)
+
+
+def test_each_target_is_judged_against_its_own_baseline_with_no_absolute_floor():
+    sel = SsvepSelector(2)
+    sel.calibrate([[-6.0] * 20, [4.0] * 20])  # one idles low, the other idles high
+    assert (
+        sel.thresholds[0] < 0 < sel.thresholds[1]
+    )  # the low one is not pulled up to a 3 dB floor
+    assert sel.thresholds[0] == pytest.approx(-6.0 + sel.cfg.min_rise_db)
+    polluted = SsvepSelector(1)
+    polluted.calibrate([[30.0] * 20])
+    assert (
+        polluted.thresholds[0] == polluted.cfg.max_threshold_db
+    )  # capped, so it cannot lock up
+
+
+def test_uncalibrated_selector_picks_nobody():
+    sel = SsvepSelector(4)
+    picked, _ = run_selector(sel, [20.0, -5.0, -5.0, -5.0], 20)
+    assert set(picked) == {None}
+
+
+def test_the_target_that_stands_out_is_selected_after_the_hold_time():
+    sel = calibrated_selector()
+    scores = [-3.0, -3.0, 6.0, -3.0]  # clearly the third
+    picked, _ = run_selector(sel, scores, 8)
+    assert picked[0] is None  # not instantly
+    assert picked[-1] == 2 and set(picked) <= {None, 2}  # never anyone else on the way
+
+
+def test_two_targets_both_standing_out_is_ambiguous_so_nobody_is_selected():
+    sel = calibrated_selector()
+    picked, _ = run_selector(
+        sel, [6.0, -3.0, 6.3, -3.0], 20
+    )  # within the 1 dB margin of each other
+    assert set(picked) == {None}
+    picked, _ = run_selector(
+        sel, [6.0, -3.0, 9.0, -3.0], 20, t0=10
+    )  # now clearly the third
+    assert picked[-1] == 2
+
+
+def test_switching_target_requires_holding_the_new_one_and_looking_away_releases():
+    sel = calibrated_selector()
+    picked, t = run_selector(sel, [-3.0, 7.0, -3.0, -3.0], 10)
+    assert picked[-1] == 1
+    # one frame of a different target is not a switch
+    one, t = run_selector(sel, [-3.0, -3.0, -3.0, 8.0], 1, t0=t)
+    assert one == [1]
+    picked, t = run_selector(sel, [-3.0, -3.0, -3.0, 8.0], 10, t0=t)
+    assert picked[-1] == 3  # held long enough: the selection moves
+    away, _ = run_selector(sel, [-3.0, -3.0, -3.0, -3.0], 10, t0=t)
+    assert (
+        away[0] == 3 and away[-1] is None
+    )  # lingers briefly, then releases (release_s)
+
+
+def test_losing_the_signal_clears_the_selection():
+    sel = calibrated_selector()
+    picked, t = run_selector(sel, [-3.0, 7.0, -3.0, -3.0], 8)
+    assert picked[-1] == 1
+    state = sel.update(t + 10.0)  # no scores for a long while
+    assert state.signal_ok is False and state.selected is None
+
+
+def test_a_single_target_works_like_a_switch():
+    sel = calibrated_selector(n=1)
+    picked, _ = run_selector(sel, [6.0], 8)
+    assert picked[-1] == 0
+
+
+def test_four_targets_are_told_apart_on_simulated_eeg_without_ever_picking_the_wrong_one():
+    cfg = SsvepConfig()
+
+    def scores(w):
+        return [ssvep_score_db(w, FS, f, cfg) for f in TARGETS]
+
+    sim = SimulatedEeg(seed=11, ssvep_uv=6.0)
+    base_stream = sim.chunk(40 * FS, False).T  # looking at none of them
+    baseline = [[] for _ in TARGETS]
+    for k in range(0, base_stream.shape[1] - 2 * FS, 62):
+        for i, v in enumerate(scores(base_stream[:, k : k + 2 * FS])):
+            baseline[i].append(v)
+    sel = SsvepSelector(len(TARGETS), cfg)
+    sel.calibrate(baseline)
+    t = 0.0
+    for look in [None, *TARGETS, None, *reversed(TARGETS)]:
+        stream = sim.chunk(12 * FS, look is not None, look).T
+        got = []
+        for k in range(0, stream.shape[1] - 2 * FS, 62):
+            t += 0.25
+            state = sel.update(t, scores(stream[:, k : k + 2 * FS]))
+            if k > 5 * FS:  # the 2 s window has had time to fill with the new signal
+                got.append(state.selected)
+        want = None if look is None else TARGETS.index(look)
+        assert all(g == want for g in got), (look, sorted(set(map(str, got))))

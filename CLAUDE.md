@@ -50,7 +50,9 @@ nightdrive/                  # flat package at the repo root, so `python -m nigh
   track.py                   # procedural looping road (curves, hills, roadside props)
   renderer.py                # pseudo-3D segment projection, fog, sprite scaling
   art.py                     # procedural pixel art: sprites, sky, hills, cockpit
-  attention/ssvep.py         # SSVEP measure (SNR in dB at the flicker frequency) + SsvepDetector (calibrate, hold, re-arm): pure logic
+  ssvep_demo.py              # SSVEP demo window: several buttons flickering at different frequencies + which one you look at (python -m nightdrive.ssvep_demo)
+  attention/ssvep_sim.py     # SimulatedEeg / SimulatedSource: synthetic EEG for demos, tools and tests (no headset)
+  attention/ssvep.py         # SSVEP measure (SNR in dB at the flicker frequency) + SsvepDetector (one target: calibrate, hold, re-arm) + SsvepSelector (several targets: which one?): pure logic
   lsl/eeg_reader.py          # threaded reader of the raw `NightDriveEEG` stream (rolling window)
   light_switch.py            # LightSwitch interface, ClickLightSwitch, SsvepLightSwitch + the stimulus flicker function
   roadside.py                # the roadside monster (lights off!) and hitchhikers (some are impostors): pure logic
@@ -180,7 +182,24 @@ python -m nightdrive --lights ssvep           # terminal 2: the game (add --no-s
 
 *Measured end to end* (real game process + `ssvep_sim_stream.py --auto 8:20` over LSL, default config): calibration 15 s -> threshold 3.0 dB; one detection about 1-2 s after the simulated look began; no re-trigger during the 8 s stare; re-armed on looking away.
 
-*Known gaps, not done yet.* Tested only on simulated EEG and through g.Pype's `Generator`: **never on the Unicorn**, so the thresholds (`min_threshold_db` 3, `hold_s`, window length) will need tuning on real signals (watch the `[ssvep]` console log). Channel indices 5,6,7 are the nominal layout and are not read from stream labels. No artifact rejection. No LSL markers at the stimulus transitions (the PSD method does not need phase, but you will want them for offline analysis). The stimulus is drawn at the game's frame rate: at 60 FPS 15 Hz is exactly 2 frames lit, 2 dark; check the monitor really runs at 60 Hz and that frames are not dropped (a dropped frame distorts one cycle). Keep the frequency out of 8-12 Hz (alpha: swamps the measure and the ghost detection uses it). Tests: `tests/test_ssvep.py` (measure, rules, a real-LSL reader round trip, the switch with a stand-in reader, the drive scene, and an end-to-end run over LSL with the simulator).
+*Known gaps, not done yet.* Tested only on simulated EEG and through g.Pype's `Generator`: **never on the Unicorn**, so the thresholds (`min_threshold_db` 3, `hold_s`, window length) will need tuning on real signals (watch the `[ssvep]` console log). Channel indices 5,6,7 are the nominal layout and are not read from stream labels. No artifact rejection. No LSL markers at the stimulus transitions (the PSD method does not need phase, but you will want them for offline analysis). The stimulus is drawn at the game's frame rate: at 60 FPS 15 Hz is exactly 2 frames lit, 2 dark (only 30, 15, 10, 7.5 and 6 Hz are exact; 20 Hz is not); check the monitor really runs at 60 Hz and that frames are not dropped (a dropped frame distorts one cycle). Keep the frequency out of 8-12 Hz (alpha: swamps the measure and the ghost detection uses it). Tests: `tests/test_ssvep.py` (measure, rules, a real-LSL reader round trip, the switch with a stand-in reader, the drive scene, and an end-to-end run over LSL with the simulator).
+
+## Implemented: the SSVEP demo (several flickering buttons)
+
+```
+python -m nightdrive.ssvep_demo                  # the headset: reads the LSL stream "NightDriveEEG" (run tools/gpype_eeg_stream.py first)
+python -m nightdrive.ssvep_demo --source sim     # no headset: hover the mouse over a button (or press 1-4, 0 = away) to "look" at it
+python tools/ssvep_sim_stream.py --freqs 6 7.5 13 17 [--auto 8:6]   # no headset, over LSL (even from another computer): type 1-4 + Enter to look at a button
+python -m nightdrive.ssvep_demo --freqs 6 9 15 --wave square --calibration 15     # other frequencies / waveform / calibration length
+```
+
+A window with N big buttons (default 6, 7.5, 13 and 17 Hz) each flickering at its own frequency, a fixation cross, and the answer in big letters ("LOOKING AT: BUTTON 3 (13 Hz)" or "NOTHING"), also printed to the console on every change. Under each button: its live score in dB with a bar and a tick for its threshold; the selected button gets a green outline. **R** recalibrates, **ESC** quits. The footer shows FPS and a dropped-frame counter, because a stuttering flicker ruins the stimulus.
+
+**How it decides** (`SsvepSelector` in `attention/ssvep.py`, driven by `DemoModel` in `ssvep_demo.py`). It first calibrates for `--calibration` seconds (10) while you look at the cross, not the buttons, recording each button's score. **Each button gets its own threshold from its own baseline** (median + max(3 x robust spread, 3 dB), no absolute floor): low frequencies sit on stronger background EEG, so raw scores are not comparable across buttons (on synthetic EEG, 6 Hz idles near -6 dB and 17 Hz near 0 dB). Then every 0.25 s each button's frequency is measured over the last 2 s (the same `ssvep_score_db` as the headlight switch); a button is a candidate while its smoothed score is above its threshold; the candidate with the biggest lead over its threshold wins if it beats the runner-up by 1 dB (otherwise ambiguous: nobody); a winner that holds for 0.5 s becomes the selection and stays until another one holds or nobody stands out for 0.75 s. Losing the stream clears the selection.
+
+**Choosing frequencies.** Keep them out of 8-12 Hz (alpha) and make sure no button's 2nd harmonic equals another button's frequency (7.5 Hz and 15 Hz clash); the defaults satisfy both and `tests/test_ssvep_demo.py` checks it. The window draws a **sampled sine** by default (`--wave sine`, `stimulus_level` in `light_switch.py`): accurate for any frequency on a 60 Hz screen. `--wave square` is on/off like the headlight button, which is only a clean 50% duty cycle for 30, 15, 10, 7.5 and 6 Hz at 60 FPS (60/2k): **20 Hz is not** (1.5 frames per half-cycle, lit 2 frames of 3). Targets share a channel set and the measure of one button uses the neighbouring bands as noise, which includes the other buttons' peaks: that helps separate them.
+
+**What was measured** (synthetic EEG, so optimistic): four buttons at 6 uV simulated response, 100% of the time the right button and never a wrong one; at 4 uV, 92% with the misses being only "nothing selected" on the weakest (6 Hz); over real LSL with `ssvep_sim_stream.py`: the right button reported about 1.5-1.7 s after the look began and released about 2.7 s after it ended. **The first calibration is the fragile moment**: if the player looks at a button during it, that button's baseline is polluted (its threshold rose to 9.2 dB in one run) and it becomes hard to select until `R`. Never tested on the Unicorn.
 
 ## Conventions
 

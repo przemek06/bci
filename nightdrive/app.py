@@ -4,12 +4,14 @@ import pygame
 
 from . import settings as S
 from .art import Art
+from .audio import Music
 from .scenes import MenuScene
+from .sfx import Sfx
 from .world import World
 
 
 class App:
-    def __init__(self, seed=None):
+    def __init__(self, seed=None, audio=True):
         pygame.init()
         pygame.display.set_caption("Night Drive")
         self.fullscreen = False
@@ -25,6 +27,8 @@ class App:
         self.font_big = pygame.font.Font(None, 28)
         self.font_small = pygame.font.Font(None, 14)
         self.assets = Art()
+        self.music = Music(enabled=audio)
+        self.sfx = Sfx(enabled=audio)
         self.scene = MenuScene(self, World(self.assets, seed))
 
     def set_scene(self, scene):
@@ -62,9 +66,13 @@ class App:
                     self.quit()
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
                     self.toggle_fullscreen()
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_F10:
+                    self.music.toggle_mute()
+                    self.sfx.toggle_mute()
                 else:
                     self.scene.handle_event(event)
             self.scene.update(dt)
+            self.music.update(dt)
             self.scene.draw(self.canvas)
             self.present()
         pygame.quit()

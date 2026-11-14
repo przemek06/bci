@@ -3,13 +3,14 @@ import random
 import pygame
 
 from . import settings as S
-from .events import DEAD, QTE, EventDirector
+from .events import AFTERMATH, CATALOGUE, DEAD, IMPACT, QTE, EventDirector
 
 TEXT = (225, 228, 255)
 DIM = (120, 128, 170)
 ACCENT = (255, 120, 90)
 GOOD = (120, 255, 160)
 BAD = (255, 90, 80)
+WARN = (255, 190, 60)
 
 
 def draw_text(surf, text, font, color, center=None, topleft=None, shadow=(5, 6, 16)):
@@ -27,6 +28,12 @@ class MenuScene:
         self.app = app
         self.world = world
         self.world.cruise = S.MENU_SPEED
+        app.music.duck = False
+        app.music.start()
+        world.headlights.reset()
+        world.headlights.flicker_enabled = False
+        app.sfx.stop_loop("panic")
+        app.sfx.stop_loop("buzz")
         self.selected = 0
         self.veil = pygame.Surface((S.W, S.H), pygame.SRCALPHA)
         self.veil.fill((2, 3, 12, 110))
@@ -51,6 +58,8 @@ class MenuScene:
 
     def update(self, dt):
         self.world.update(dt)
+        self.app.sfx.engine(self.world.speed / S.CRUISE_SPEED)
+        self.app.sfx.ambience()
 
     def draw(self, surf):
         self.world.draw(surf)
@@ -82,10 +91,20 @@ class MenuScene:
             )
         draw_text(
             surf,
-            "UP/DOWN + ENTER    F11 FULLSCREEN",
+            "UP/DOWN + ENTER   F11 FULLSCREEN   F10 MUTE",
             self.app.font_small,
             DIM,
             center=(S.W // 2, 100 + 52),
+        )
+        draw_text(
+            surf, "MUSIC: CROW SHADE", self.app.font_small, DIM, center=(S.W // 2, 161)
+        )
+        draw_text(
+            surf,
+            "SFX: YOURPALROB, DARKWORLD AUDIO, RIRISAURUS",
+            self.app.font_small,
+            DIM,
+            center=(S.W // 2, 171),
         )
 
 
@@ -94,21 +113,36 @@ class DriveScene:
         self.app = app
         self.world = world
         self.world.cruise = S.CRUISE_SPEED
+        app.music.start()
+        world.headlights.reset()
+        world.headlights.flicker_enabled = True
         self.rng = random.Random(app.seed)
         self.director = EventDirector(world, self.rng)
         self.auto_timer = self.rng.uniform(*S.AUTO_EVENT_RANGE)
         self.elapsed = 0.0
+        self._prev_state = self.director.state
+        self._was_flickering = False
 
-    def on_distracted(self):
+    def on_distracted(self, event=None):
         """Called when the player's attention drops. For now fired by a timer or the E key."""
-        self.director.trigger()
+        if self.director.trigger(event):
+            self.app.sfx.play("riser")
+            self.app.sfx.play_appear(self.director.event.name)
 
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN:
             return
         if event.key == pygame.K_ESCAPE:
             self.director.reset()
+            self.app.sfx.stop("riser")
             self.app.set_scene(MenuScene(self.app, self.world))
+        elif event.key == pygame.K_SPACE:
+            self.world.headlights.toggle()
+            self.app.sfx.play_lights(self.world.headlights.on)
+        elif pygame.K_1 <= event.key <= pygame.K_9:  # debug: trigger a specific event
+            index = event.key - pygame.K_1
+            if index < len(CATALOGUE) and not self.director.active:
+                self.on_distracted(CATALOGUE[index])
         elif pygame.K_a <= event.key <= pygame.K_z:
             letter = chr(event.key).upper()
             if self.director.state == QTE:
@@ -120,6 +154,32 @@ class DriveScene:
         self.elapsed += dt
         self.world.update(dt)
         self.director.update(dt)
+        flickering = self.world.headlights.flickering
+        if flickering and not self._was_flickering:
+            self.app.sfx.play("zap")
+        self._was_flickering = flickering
+        self.app.music.duck = self.director.state in (QTE, IMPACT)
+        sfx = self.app.sfx
+        sfx.engine(self.world.speed / S.CRUISE_SPEED)
+        sfx.ambience()
+        if self.director.state in (
+            QTE,
+            IMPACT,
+        ):  # panicked breathing while the clock ticks
+            sfx.loop("panic", S.PANIC_VOLUME)
+        else:
+            sfx.stop_loop("panic")
+            if not self.director.active:
+                sfx.ambient_tick(dt)
+        if flickering and self.world.headlights.on:
+            sfx.loop("buzz", S.BUZZ_VOLUME)
+        else:
+            sfx.stop_loop("buzz")
+        if self.director.state != self._prev_state:
+            if self.director.state == AFTERMATH:  # we braked in time
+                self.app.sfx.stop("riser")
+                self.app.sfx.play_saved(self.director.event.name)
+            self._prev_state = self.director.state
         if self.director.state == DEAD:
             self.app.set_scene(
                 GameOverScene(
@@ -145,11 +205,34 @@ class DriveScene:
             self._draw_prompt(surf, d.qte)
         elif d.message:
             draw_text(surf, d.message, self.app.font_big, GOOD, center=(S.W // 2, 40))
+        self._draw_headlight_hint(surf)
         if self.elapsed < 5:
             alpha = 255 if self.elapsed < 3.5 else int(255 * (5 - self.elapsed) / 1.5)
-            hint = self.app.font_small.render("ESC - MENU", False, DIM)
+            hint = self.app.font_small.render(
+                "SPACE - LIGHTS    ESC - MENU", False, DIM
+            )
             hint.set_alpha(alpha)
             surf.blit(hint, hint.get_rect(topright=(S.W - 6, 10)))
+
+    def _draw_headlight_hint(self, surf):
+        lights = self.world.headlights
+        if lights.flickering and lights.on:
+            if int(self.elapsed * 3) % 2 == 0:
+                draw_text(
+                    surf,
+                    "HEADLIGHTS FAILING - SPACE: OFF, THEN ON",
+                    self.app.font_small,
+                    WARN,
+                    center=(S.W // 2, S.H - 46),
+                )
+        elif not lights.on:
+            draw_text(
+                surf,
+                "HEADLIGHTS OFF - SPACE",
+                self.app.font_small,
+                DIM,
+                center=(S.W // 2, S.H - 46),
+            )
 
     def _draw_prompt(self, surf, qte):
         cx, top = S.W // 2, 16
@@ -179,6 +262,10 @@ class GameOverScene:
         self.survived = survived
         self.saved = saved
         self.image = app.assets.jumpscares[event.name]
+        app.music.stop()  # silence makes the scare land harder
+        app.sfx.stop("riser")
+        app.sfx.stop_loops()
+        app.sfx.play_scare(event.name)
         self.t = 0.0
         self.rng = random.Random()
 
@@ -190,9 +277,11 @@ class GameOverScene:
         if event.type != pygame.KEYDOWN or not self.can_continue:
             return
         if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+            self.app.sfx.stop_all()
             self.world.speed = 0.0
             self.app.set_scene(DriveScene(self.app, self.world))
         elif event.key == pygame.K_ESCAPE:
+            self.app.sfx.stop_all()
             self.app.set_scene(MenuScene(self.app, self.world))
 
     def update(self, dt):
@@ -223,13 +312,13 @@ class GameOverScene:
             surf.blit(veil, (0, 0))
         if t < 0.1:  # white flash on impact
             surf.fill((255, 255, 255), special_flags=pygame.BLEND_RGB_ADD)
-        if self.event.kind == "funny" and t < S.JUMPSCARE_TIME:
+        if self.event.scare_text and t < S.JUMPSCARE_TIME:
             draw_text(
                 surf,
-                "BAWK!",
+                self.event.scare_text,
                 self.app.font_title,
                 (255, 255, 255),
-                center=(S.W // 2, 160),
+                center=(S.W // 2, 22),
                 shadow=(120, 30, 40),
             )
         if t > S.JUMPSCARE_TIME:  # fade out

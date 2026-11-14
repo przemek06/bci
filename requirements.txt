@@ -1,0 +1,4 @@
+pygame-ce>=2.5
+numpy>=1.26
+pytest>=8
+ruff>=0.6

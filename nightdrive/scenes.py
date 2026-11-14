@@ -318,7 +318,6 @@ class DriveScene:
                     self.world,
                     self.cop.death_event,
                     self.elapsed,
-                    self.director.saved_count + self.ghost.passed_count,
                 )
             )
             self.cop.reset()

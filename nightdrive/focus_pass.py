@@ -1,8 +1,12 @@
 """Focus to pass a quick-time event: instead of pressing the letter, the player can focus hard.
 
 While a quick-time event is running, the attention level (see attention/focus_index.py:
-1.0 = this person's normal, 1.4 = 40% above) is watched. If it stays at or above `pass_level`
-for `hold_s` seconds, the event is passed, exactly as if the right key had been pressed.
+1.0 = this person's normal, 1.4 = 40% above) is watched. The *average* level over the last
+`avg_s` seconds is compared with `pass_level`: while the average is at or above it, progress
+moves forward; while it is below, progress simply stops (it is not reset, unless `drain` is
+set above 0). Once `hold_s` seconds of progress have been collected, the event is passed,
+exactly as if the right key had been pressed. So one bad moment costs time, never the progress
+already made.
 
 Focusing takes longer than a key press, so when focus can be used (the attention source is
 calibrated and has a fresh signal) the event window is `qte_window_s` instead of the usual
@@ -11,6 +15,7 @@ short one. Otherwise nothing changes: letters only, normal window.
 `FocusMeter` is pure logic (time passed in). `FocusPass` is the glue the drive scene uses.
 """
 
+from collections import deque
 from dataclasses import dataclass
 
 import pygame
@@ -26,10 +31,9 @@ SHADOW = (5, 6, 16)
 @dataclass(frozen=True)
 class FocusPassConfig:
     pass_level: float = 1.0  # level at or above this = focusing hard (40% above normal)
-    hold_s: float = 1.0  # ... for this long to pass
-    drain: float = (
-        2.0  # while below, progress drains this many times faster than it fills
-    )
+    hold_s: float = 1.5  # ... for this long (in total) to pass
+    avg_s: float = 1.0  # the level is averaged over this window before comparing it
+    drain: float = 0.0  # while below: 0 = progress holds still; >0 = it drains this many times faster than it fills
     qte_window_s: float = (
         5.0  # event time limit when focus can pass it (else the normal one)
     )
@@ -38,27 +42,48 @@ class FocusPassConfig:
 
 
 class FocusMeter:
-    """How long (leaky) the attention level has been high."""
+    """Progress towards passing: time collected while the average attention level is high."""
 
     def __init__(self, config: FocusPassConfig | None = None) -> None:
         self.cfg = config or FocusPassConfig()
         self.held = 0.0
         self.passed = False
+        self._t = 0.0
+        self._levels: deque[tuple[float, float]] = (
+            deque()
+        )  # (time, level), last avg_s only
 
     @property
     def progress(self) -> float:
         return min(1.0, self.held / self.cfg.hold_s)
 
+    @property
+    def avg_level(self) -> float | None:
+        """Average attention level over the last `avg_s` seconds (None before any sample)."""
+        if not self._levels:
+            return None
+        return sum(v for _, v in self._levels) / len(self._levels)
+
     def reset(self) -> None:
         self.held = 0.0
         self.passed = False
+        self._t = 0.0
+        self._levels.clear()
 
     def update(self, dt: float, att: AttentionState) -> bool:
         """Feed the current attention state. Returns True once the player has passed."""
+        self._t += dt
         usable = att.calibrated and att.quality >= self.cfg.min_quality
-        if usable and att.level >= self.cfg.pass_level:
+        if usable:
+            self._levels.append((self._t, att.level))
+        while self._levels and self._levels[0][0] < self._t - self.cfg.avg_s:
+            self._levels.popleft()
+        avg = self.avg_level
+        if usable and avg is not None and avg >= self.cfg.pass_level:
             self.held += dt
-        else:
+        elif (
+            self.cfg.drain > 0
+        ):  # optional: slip = lose progress (default: just stand still)
             self.held = max(0.0, self.held - self.cfg.drain * dt)
         if self.held >= self.cfg.hold_s:
             self.passed = True
@@ -96,8 +121,8 @@ class FocusPass:
             if not self._qte_active:
                 self.meter.reset()
                 self._emit(
-                    f"QTE started: press the key OR focus (level >= {self.cfg.pass_level:g} "
-                    f"for {self.cfg.hold_s:g}s)"
+                    f"QTE started: press the key OR focus (average level >= "
+                    f"{self.cfg.pass_level:g} for {self.cfg.hold_s:g}s in total)"
                     if self.ready
                     else "QTE started: letters only (attention not ready)"
                 )
@@ -121,8 +146,8 @@ class FocusPass:
             return
         self._last_log = self.t
         state = (
-            f"QTE focus {self.meter.held:.1f}/{self.cfg.hold_s:g}s "
-            f"(need level >= {self.cfg.pass_level:g})"
+            f"QTE focus {self.meter.held:.1f}/{self.cfg.hold_s:g}s, "
+            f"avg level {self.meter.avg_level or 0:.2f} (need >= {self.cfg.pass_level:g})"
             if qte_active
             else "idle"
         )
@@ -133,7 +158,10 @@ class FocusPass:
         if not self.ready:
             return
         font = self.app.font_small
-        level = self.att.level
+        avg = self.meter.avg_level
+        level = (
+            self.att.level if avg is None else avg
+        )  # show what the rule actually compares
         text = f"OR FOCUS  {level:.1f} / {self.cfg.pass_level:.1f}"
         img = font.render(text, False, CYAN)
         rect = img.get_rect(center=(S.W // 2, 79))

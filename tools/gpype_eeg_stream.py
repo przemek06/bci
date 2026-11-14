@@ -32,7 +32,7 @@ STREAM_NAME = "NightDriveEEG"
 SAMPLING_RATE = 250
 
 # Nominal Unicorn layout: Fz, C3, Cz, C4, Pz, PO7, Oz, PO8. Verify on the real device.
-OCCIPITAL_CHANNELS = [5, 6, 7]  # PO7, Oz, PO8
+OCCIPITAL_CHANNELS = [1,2,3,4,5, 6, 7]  # PO7, Oz, PO8
 
 
 def build_pipeline(args: argparse.Namespace) -> gp.Pipeline:
@@ -47,13 +47,13 @@ def build_pipeline(args: argparse.Namespace) -> gp.Pipeline:
             noise_amplitude=10,
         )
     else:
-        source = gp.HybridBlack(serial=args.serial)
+        source = gp.HybridBlack(serial=args.serial, enable_oscar=True)
 
     router = gp.Router(
         input_channels=gp.Router.ALL,
         output_channels={"OCC": args.channels},
     )
-    bandpass = gp.Bandpass(f_lo=3, f_hi=40)
+    bandpass = gp.Bandpass(f_lo=0.5, f_hi=50)
     mains = gp.Bandstop(f_lo=args.mains - 2, f_hi=args.mains + 2)
     sender = gp.LSLSender(stream_name=args.name)
 
@@ -68,9 +68,6 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument(
         "--serial", help="Unicorn serial, e.g. UN-2024.01.01 (default: first found)"
-    )
-    ap.add_argument(
-        "--simulate", action="store_true", help="use a synthetic source, no headset"
     )
     ap.add_argument(
         "--freq",

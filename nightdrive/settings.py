@@ -36,7 +36,7 @@ PARALLAX_NEAR = 0.10
 BG_WIDTH = 640  # width of the looping background tiles
 
 # Events and quick-time events
-QTE_WINDOW = 2.0  # seconds to press the prompted letter
+QTE_WINDOW = 4.5  # seconds to press the prompted letter
 QTE_WINDOW_DARK = 1.0  # ...when the headlights are off or flickering
 IMPACT_DISTANCE = 900  # world units: when a missed creature gets hit
 AFTERMATH_TIME = 2.2  # seconds the result message stays up

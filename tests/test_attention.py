@@ -168,38 +168,73 @@ def run_meter(meter, seconds, level, dt=0.05, **kw):
     return meter
 
 
-# Levels relative to whatever pass_level is configured, so these tests survive tuning it.
-PASS = FocusPassConfig().pass_level
+# Everything is expressed in the configured values, so these tests survive tuning them.
+CFG = FocusPassConfig()
+PASS = CFG.pass_level
+HOLD = CFG.hold_s
 HIGH = PASS + 0.5  # clearly focusing
 SLIP = PASS - 0.3  # clearly below the line
 
 
 def test_meter_passes_after_holding_a_high_level():
     m = FocusMeter()
-    run_meter(m, 0.9, HIGH)
-    assert not m.passed and 0.8 < m.progress < 1.0
-    run_meter(m, 0.3, HIGH)
+    run_meter(m, HOLD * 0.9, HIGH)
+    assert not m.passed and 0.85 < m.progress < 1.0
+    run_meter(m, HOLD * 0.3, HIGH)
     assert m.passed
 
 
 def test_meter_does_not_pass_below_the_threshold_or_without_a_good_signal():
-    m = run_meter(FocusMeter(), 10, PASS - 0.05)  # just under the line is not enough
+    m = run_meter(
+        FocusMeter(), HOLD * 3, PASS - 0.05
+    )  # just under the line is not enough
     assert not m.passed and m.progress == 0.0
-    assert not run_meter(FocusMeter(), 10, HIGH, calibrated=False).passed
-    assert not run_meter(FocusMeter(), 10, HIGH, quality=0.1).passed
+    assert not run_meter(FocusMeter(), HOLD * 3, HIGH, calibrated=False).passed
+    assert not run_meter(FocusMeter(), HOLD * 3, HIGH, quality=0.1).passed
 
 
-def test_meter_drains_when_focus_slips_and_forgives_a_short_dip():
+def test_a_dip_holds_the_progress_still_and_never_resets_it():
     m = FocusMeter()
-    run_meter(m, 0.6, HIGH)
+    run_meter(m, HOLD * 0.5, HIGH)
     held = m.held
-    run_meter(m, 0.15, SLIP)  # a brief slip
-    assert 0 < m.held < held
-    run_meter(m, 0.8, HIGH)  # 0.6 - 2 x 0.15 = 0.3 s left over, 0.7 s more is enough
-    assert m.passed  # the slip did not throw the progress away
-    m2 = run_meter(FocusMeter(), 0.6, HIGH)
-    run_meter(m2, 2.0, SLIP)  # long slip: back to zero
-    assert m2.held == 0.0 and not m2.passed
+    run_meter(m, HOLD * 2, SLIP)  # a long bad stretch
+    after = m.held
+    # the average lags a little (up to avg_s) before it falls below the line, then it stands still
+    assert held <= after <= held + CFG.avg_s + 0.05
+    run_meter(m, 3.0, SLIP)
+    assert m.held == pytest.approx(after)  # no draining, no reset
+    assert not m.passed
+    run_meter(
+        m, HOLD + CFG.avg_s, HIGH
+    )  # focus returns: carries on from where it stopped
+    assert m.passed
+
+
+def test_one_bad_value_does_not_even_stall_the_progress():
+    m = FocusMeter()
+    run_meter(m, HOLD * 0.4, HIGH)
+    m.update(0.05, att(SLIP))  # a single bad frame
+    held = m.held
+    run_meter(m, 0.5, HIGH)
+    assert m.held == pytest.approx(held + 0.5, abs=0.06)  # the average barely moved
+
+
+def test_the_meter_compares_the_average_level():
+    m = FocusMeter()
+    run_meter(m, CFG.avg_s, HIGH)
+    assert m.avg_level == pytest.approx(HIGH)
+    run_meter(m, CFG.avg_s, SLIP)  # the whole window is now the low level
+    assert m.avg_level == pytest.approx(SLIP, abs=0.05)
+    m.reset()
+    assert m.avg_level is None and m.held == 0.0
+
+
+def test_draining_is_still_available_as_an_option():
+    m = FocusMeter(FocusPassConfig(drain=2.0))
+    run_meter(m, HOLD * 0.5, HIGH)
+    held = m.held
+    run_meter(m, 2.0, SLIP)
+    assert m.held < held  # slips lose progress when drain > 0
 
 
 # --- focus pass glue --------------------------------------------------------------------
@@ -253,7 +288,7 @@ def test_focus_only_counts_during_a_quick_time_event_and_logs():
         assert not f.update(0.05, qte_active=False)
     assert f.meter.held == 0.0
     passed = False
-    for _ in range(40):
+    for _ in range(round((HOLD + 1.0) / 0.05)):  # the configured hold, plus a margin
         passed = f.update(0.05, qte_active=True) or passed
     assert passed
     text = "\n".join(lines)
@@ -438,7 +473,7 @@ def test_high_attention_passes_a_quick_time_event_without_a_key():
         drive.director.state == QTE
         and drive.director.qte.window == drive.focus.cfg.qte_window_s
     )
-    run(4.0, until=lambda: drive.director.state != QTE)
+    run(drive.focus.cfg.qte_window_s, until=lambda: drive.director.state != QTE)
     assert drive.director.state == AFTERMATH  # passed, no key pressed
     assert drive.director.history[-1]["input"] == "focus"
     assert app.scene is drive  # and the run goes on

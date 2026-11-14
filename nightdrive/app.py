@@ -1,15 +1,22 @@
 import argparse
+from pathlib import Path
 
 import pygame
 
 from . import settings as S
 from .art import Art
+from .gaze import l2cs
+from .gaze.base import GazePoint
+from .gaze.calibration import GazeCalibration
+from .gaze.mouse_source import MouseGazeSource
+from .gaze.tracker import GazeTracker
+from .gaze.webcam_source import WebcamGazeSource, parse_camera
 from .scenes import MenuScene
 from .world import World
 
 
 class App:
-    def __init__(self, seed=None):
+    def __init__(self, seed=None, gaze="off", camera=0, gaze_model="auto"):
         pygame.init()
         pygame.display.set_caption("Night Drive")
         self.fullscreen = False
@@ -25,13 +32,74 @@ class App:
         self.font_big = pygame.font.Font(None, 28)
         self.font_small = pygame.font.Font(None, 14)
         self.assets = Art()
+        self.gaze_mode = (
+            gaze if gaze != "off" else "webcam"
+        )  # source used when toggled on
+        cams = camera if isinstance(camera, (list, tuple)) else [camera]
+        self.camera = [parse_camera(c) for c in cams]
+        self.use_l2cs = gaze_model == "l2cs" or (
+            gaze_model == "auto" and l2cs.available()
+        )
+        self.gaze_tag = f"{'l2cs' if self.use_l2cs else 'mediapipe'}:{len(self.camera)}"
+        self.gaze = None  # GazeTracker while eye tracking is on
+        self.show_gaze = True
+        if gaze != "off":
+            self.enable_gaze()
         self.scene = MenuScene(self, World(self.assets, seed))
 
     def set_scene(self, scene):
         self.scene = scene
 
     def quit(self):
+        self.disable_gaze()
         self.running = False
+
+    def enable_gaze(self):
+        if self.gaze_mode == "mouse":
+            source = MouseGazeSource(self.mouse_norm)
+        else:
+            source = WebcamGazeSource(self.camera, self.use_l2cs)
+        cal = GazeCalibration.load(Path(S.GAZE_CALIBRATION_FILE))
+        if cal is not None and source.needs_calibration and cal.tag != self.gaze_tag:
+            cal = None  # calibrated for another model / camera set
+        self.gaze = GazeTracker(source, cal)
+        self.gaze.start()
+
+    def disable_gaze(self):
+        if self.gaze:
+            self.gaze.stop()
+            self.gaze = None
+
+    def _view(self):
+        ww, wh = pygame.display.get_surface().get_size()
+        scale = max(1, min(ww // S.W, wh // S.H))
+        return scale, (ww - S.W * scale) // 2, (wh - S.H * scale) // 2
+
+    def _canvas_on_screen(self):
+        """(x, y, w, h) of the letterboxed canvas in desktop coordinates."""
+        scale, ox, oy = self._view()
+        wx, wy = pygame.display.get_window_position()
+        return wx + ox, wy + oy, S.W * scale, S.H * scale
+
+    def mouse_norm(self):
+        """Mouse position as 0..1 desktop coordinates (the same space as the gaze)."""
+        dw, dh = pygame.display.get_desktop_sizes()[0]
+        wx, wy = pygame.display.get_window_position()
+        mx, my = pygame.mouse.get_pos()
+        return (wx + mx) / dw, (wy + my) / dh
+
+    def gaze_canvas_point(self):
+        """The gaze point mapped from the desktop onto the game canvas (0..1 inside it), or None."""
+        p = self.gaze.point if self.gaze else None
+        if p is None:
+            return None
+        dw, dh = pygame.display.get_desktop_sizes()[0]
+        x, y, w, h = self._canvas_on_screen()
+        return GazePoint((p.x * dw - x) / w, (p.y * dh - y) / h, p.quality, p.t)
+
+    def set_fullscreen(self, flag):
+        if flag != self.fullscreen:
+            self.toggle_fullscreen()
 
     def toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
@@ -64,9 +132,15 @@ class App:
                     self.toggle_fullscreen()
                 else:
                     self.scene.handle_event(event)
+            if self.gaze:
+                self.gaze.update()
             self.scene.update(dt)
-            self.scene.draw(self.canvas)
-            self.present()
+            if getattr(self.scene, "draws_window", False):
+                self.scene.draw_window(pygame.display.get_surface())
+                pygame.display.flip()
+            else:
+                self.scene.draw(self.canvas)
+                self.present()
         pygame.quit()
 
 
@@ -75,5 +149,23 @@ def main():
     parser.add_argument(
         "--seed", type=int, default=None, help="seed for the generated road"
     )
+    parser.add_argument(
+        "--gaze",
+        choices=("off", "webcam", "mouse"),
+        default="off",
+        help="enable eye tracking at start (it can also be toggled in the menu)",
+    )
+    parser.add_argument(
+        "--gaze-camera",
+        nargs="+",
+        default=["0"],
+        help="one or more camera indexes / stream URLs (e.g. phones) for webcam eye tracking",
+    )
+    parser.add_argument(
+        "--gaze-model",
+        choices=("auto", "l2cs", "mediapipe"),
+        default="auto",
+        help="gaze estimator: l2cs (neural net, needs torch; best with head movement) or mediapipe (iris landmarks only); auto uses l2cs when torch is installed",
+    )
     args = parser.parse_args()
-    App(args.seed).run()
+    App(args.seed, args.gaze, args.gaze_camera, args.gaze_model).run()

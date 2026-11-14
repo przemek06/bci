@@ -4,6 +4,7 @@ import pygame
 
 from . import settings as S
 from .events import DEAD, QTE, EventDirector
+from .focus_pass import FocusPass
 from .ghost import GhostChallenge
 
 TEXT = (225, 228, 255)
@@ -98,11 +99,17 @@ class DriveScene:
         self.rng = random.Random(app.seed)
         self.director = EventDirector(world, self.rng)
         self.ghost = GhostChallenge(app)  # close-your-eyes scare, see nightdrive/ghost/
+        self.focus = FocusPass(
+            app
+        )  # focus hard to pass a quick-time event, see focus_pass.py
         self.auto_timer = self.rng.uniform(*S.AUTO_EVENT_RANGE)
         self.elapsed = 0.0
 
     def on_distracted(self):
         """Called when the player's attention drops. For now fired by a timer or the E key."""
+        self.director.qte_window = self.focus.qte_window(
+            S.QTE_WINDOW
+        )  # longer if focus can pass
         self.director.trigger()
 
     def handle_event(self, event):
@@ -123,6 +130,10 @@ class DriveScene:
 
     def update(self, dt):
         self.elapsed += dt
+        if self.focus.update(
+            dt, qte_active=self.director.state == QTE, paused=self.ghost.active
+        ):
+            self.director.pass_by_focus()
         self.world.update(dt)
         self.director.update(dt)
         if self.director.state == DEAD:
@@ -161,6 +172,7 @@ class DriveScene:
         self.world.draw(surf)
         if d.state == QTE:
             self._draw_prompt(surf, d.qte)
+            self.focus.draw(surf)
         elif d.message:
             draw_text(surf, d.message, self.app.font_big, GOOD, center=(S.W // 2, 40))
         self.ghost.draw(surf)

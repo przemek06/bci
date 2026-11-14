@@ -5,12 +5,21 @@ import pygame
 from . import settings as S
 from .art import Art
 from .attention.eyes_source import make_eyes_source
+from .attention.factory import MODES as ATTENTION_MODES
+from .attention.factory import make_attention_source
 from .scenes import MenuScene
 from .world import World
 
 
 class App:
-    def __init__(self, seed=None, eyes="keyboard", eyes_log=True):
+    def __init__(
+        self,
+        seed=None,
+        eyes="keyboard",
+        eyes_log=True,
+        attention="off",
+        attention_log=True,
+    ):
         pygame.init()
         pygame.display.set_caption("Night Drive")
         self.fullscreen = False
@@ -30,6 +39,9 @@ class App:
             eyes, log=eyes_log
         )  # "are the eyes closed?" for the ghost scare
         self.eyes.start()
+        # attention index -> focus can pass quick-time events (see focus_pass.py); "off" = unchanged
+        self.attention = make_attention_source(attention, log=attention_log)
+        self.attention.start()
         self.scene = MenuScene(self, World(self.assets, seed))
 
     def set_scene(self, scene):
@@ -74,6 +86,7 @@ class App:
             self.scene.draw(self.canvas)
             self.present()
         self.eyes.stop()
+        self.attention.stop()
         pygame.quit()
 
 
@@ -93,5 +106,22 @@ def main():
         action="store_true",
         help="don't print live alpha values to the console",
     )
+    parser.add_argument(
+        "--attention",
+        choices=ATTENTION_MODES,
+        default="off",
+        help="focus-to-pass quick-time events: off, keyboard (hold UP), random, or bci (headset)",
+    )
+    parser.add_argument(
+        "--no-attention-log",
+        action="store_true",
+        help="don't print the live attention index to the console",
+    )
     args = parser.parse_args()
-    App(args.seed, args.eyes, eyes_log=not args.no_eyes_log).run()
+    App(
+        args.seed,
+        args.eyes,
+        eyes_log=not args.no_eyes_log,
+        attention=args.attention,
+        attention_log=not args.no_attention_log,
+    ).run()

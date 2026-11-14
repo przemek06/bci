@@ -104,7 +104,7 @@ python tools/eyes_closed_demo.py          # try calibration + the detector in th
 
 In the drive scene the debug key **G** spawns a ghost immediately (E still spawns a road event).
 
-**Data flow.** `tools/gpype_alpha_stream.py` (own process, because g.Pype's app loop wants the main thread, which pygame also needs): `HybridBlack` -> `Router` (EEG channels 5,6,7 = PO7, Oz, PO8, nominal layout; `--channels` overrides) -> `Bandpass` 1-40 Hz -> `Bandstop` at mains (`--mains`, 50 Hz default) -> `FFT` (1 s window, 75% overlap, about 4 updates/s) -> `BandPower` alpha 8-12 Hz and broadband 2-30 Hz -> `LSLSender`. The stream carries `(alpha, broad)` per channel. In the game: `lsl/alpha_reader.py` (background thread, never blocks the loop) -> relative alpha = sum(alpha) / sum(broad) -> `attention/eyes_closed.py` `EyesClosedDetector` -> `attention/eyes_source.py` -> `ghost/`.
+**Data flow.** `tools/gpype_alpha_stream.py` (own process, because g.Pype's app loop wants the main thread, which pygame also needs): `HybridBlack(enable_oscar=True)` (g.Pype's OSCAR artifact removal on the whole stream, so both branches get cleaned data) -> `Router` with two separate branches, each with its own filters, FFT and band power. The ghost (alpha) branch, with the same filters as the original: occipital channels (EEG channels 5,6,7 = PO7, Oz, PO8, nominal layout; `--channels` overrides) -> `Bandpass` 1-40 Hz -> `Bandstop` at mains (`--mains`, 50 Hz default) -> `FFT` (1 s window, 75% overlap, about 4 updates/s) -> `BandPower` alpha 8-12 Hz and broadband 2-30 Hz -> `LSLSender` `NightDriveAlpha`, carrying `(alpha, broad)` per channel. The attention branch is described in its own section below. In the game: `lsl/alpha_reader.py` (background thread, never blocks the loop) -> relative alpha = sum(alpha) / sum(broad) -> `attention/eyes_closed.py` `EyesClosedDetector` -> `attention/eyes_source.py` -> `ghost/`.
 
 **Detector** (pure logic, time passed in, tested headless). Calibrated on eyes-open relative alpha: threshold = median + max(3 x robust spread, 0.10). Then a 1 s moving average, hysteresis (closed above the threshold, open again below a lower release level), a hold timer that forgives dips shorter than `grace_s` (0.5 s), and loss of signal resets the hold. All tunables are in `EyesClosedConfig` (`eyes_closed.py`) and `GhostConfig` (`ghost/encounter.py`), deliberately not in `settings.py`; fold them into `config/default.toml` when that exists.
 
@@ -115,9 +115,40 @@ In the drive scene the debug key **G** spawns a ghost immediately (E still spawn
 **Merge notes.** Everything is new files except these small hooks: `scenes.py` `DriveScene` (import, `self.ghost`, update, draw, G key, an E-key guard, ESC reset), `app.py` (`--eyes`, `--no-eyes-log`, `app.eyes`, per-frame update, stop on exit), and `requirements.txt` (`gpype[devices,lsl]`, `pylsl`, `scipy`). Tests: `tests/test_eyes_closed.py`, `tests/test_ghost.py`.
 
 **Known gaps.**
-- Eyes-closed detection has been tested live on the Unicorn and works: the eyes-open calibration gives a sensible threshold and closing the eyes passes the ghost. It has only been tried on one person so far. The default threshold settings (`k_spread`, `min_rise`) may need tuning for other people or noisier electrode contact; use the `[eyes]` console log to check.- Channel indices 5,6,7 are the nominal Unicorn layout and are not read from stream labels (see the "never hardcode channel indices" rule).
-- No artifact rejection (blinks, jaw, motion). The OSCAR option of `HybridBlack` is off.
+- Eyes-closed detection has been tested live on the Unicorn and works: the eyes-open calibration gives a sensible threshold and closing the eyes passes the ghost. It has only been tried on one person so far. The default threshold settings (`k_spread`, `min_rise`) may need tuning for other people or noisier electrode contact; use the `[eyes]` console log to check.
+- Channel indices 5,6,7 are the nominal Unicorn layout and are not read from stream labels (see the "never hardcode channel indices" rule).
+- No artifact rejection (blinks, jaw, motion) in our own code; the only artifact handling is g.Pype's OSCAR, switched on with the documented `HybridBlack(enable_oscar=True)` (config key `AmplifierSource.Configuration.Keys.ENABLE_OSCAR`: "Whether OSCAR artifact removal runs on this stream"). It applies to the whole stream, so the alpha / eyes-closed branch and the attention branch both get OSCAR-cleaned data; the g.Pype docs describe no per-channel or per-branch option. A private, undocumented `Oscar` node was tried on the attention branch only and dropped (unverified, outside the documented placement).
 - Windows: pair the Unicorn in Bluetooth first and close Unicorn Suite before streaming (otherwise `OPEN_DEVICE_FAILED`). macOS: the g.Pype docs say the amplifier's app loop must run on the main thread there; the publisher currently waits on `input()` and has not been tried on macOS.
+
+## Implemented: attention index -> focus to pass quick-time events
+
+Experimental. During a quick-time event (the letter prompt) the player can, instead of pressing the key, focus hard: if their attention level stays well above their own normal for a moment, the event is passed as if the right key had been pressed. This is the first real `AttentionSource` (see Core abstractions); there is still no `DistractionDetector`. (An earlier version that raised the scare frequency when attention dropped was removed.)
+
+```
+python tools/gpype_alpha_stream.py                       # publishes BOTH LSL streams (alpha + bands)
+python -m nightdrive --attention bci                     # play with the live attention index
+python -m nightdrive --attention keyboard                # no headset: hold UP to raise the level, DOWN to lower it
+python -m nightdrive --attention random                  # no headset: the level drifts randomly
+python -m nightdrive --eyes bci --attention bci          # ghost scare and focus-to-pass together
+python tools/lsl_beta_high_print.py                      # standalone, like lsl_alpha_print.py: relative high-beta bar
+python tools/lsl_gamma_print.py                          # same for gamma
+python tools/lsl_attention_print.py                      # standalone: the calculated attention level (1.0 = normal) as a ### bar, | = focus-pass line
+```
+`--attention off` (default) leaves the game unchanged. `--no-attention-log` silences the console log.
+
+**Publisher.** A separate branch next to the alpha one (see the ghost section): C3, Cz, C4, Pz (`--att-channels`; away from the eyes and forehead; OSCAR-cleaned like everything from the source) -> `Bandpass` 0.5-50 Hz -> `Bandstop` at mains -> `FFT` (1 s window, 75% overlap) -> `BandPower` theta 4-8, alpha 8-12, beta low 13-16, beta mid 16-20, beta high 20-30, gamma 30-45 Hz -> `LSLSender` `NightDriveBands`: `(theta, alpha, beta_low, beta_mid, beta_high, gamma)` per channel, about 4 updates/s (24 channels). The index adds up all three beta bands (low + mid + high) and gamma.
+
+**Attention value** (`attention/focus_index.py`, plain, no logarithm): `attention = (beta + gamma) / alpha` on band powers summed over the channels, where beta = beta low + mid + high (13-30 Hz); theta is not used. Beta / gamma tend to rise when alert, alpha when relaxed or drowsy. Smoothed with a 2 s median (so it reacts within a second or two, and a short blink / jaw burst does not move a median). The baseline is the median of that over the first ~23 s of play (3 s settle + 20 s); afterwards it keeps following the last 5 minutes, so it means "how this person plays normally". `level = smoothed / baseline`: 1.0 = normal, 1.4 = 40% above normal (`AttentionState.level`).
+
+**Focus to pass** (`nightdrive/focus_pass.py`, `FocusPassConfig`, pure `FocusMeter`, glue `FocusPass`, tested headless):
+- While a quick-time event runs, the level must be at or above `pass_level` (1.4) for `hold_s` (1 s) in total. Progress drains 2x faster while the level is below, so a brief slip is forgiven but a long one resets. Then the event passes (`EventDirector.pass_by_focus()`); `history` records `"input": "focus"` (or `"key"`).
+- Focusing takes longer than a key press, so when focus can be used (the attention source is calibrated and has a fresh signal) the event window is `qte_window_s` (5 s) instead of 1.5 s (`EventDirector.qte_window`). Otherwise nothing changes: letters only, normal window. `--attention off` never changes anything.
+- On screen, under the letter prompt: "OR FOCUS 1.2 / 1.4" and a cyan progress bar. The key still works; a wrong key still fails at once.
+- Frozen while a ghost is on screen (the source ignores data then, since closed eyes distort the EEG).
+
+**Code map.** `attention/base.py` (`AttentionState`, `AttentionSource` protocol), `focus_index.py` (pure estimator), `bci_source.py` (`BciAttention`), `sim_sources.py` (`NullAttention`, `RandomAttention`, `KeyboardAttention`), `factory.py`; `lsl/reader.py` (generic background `StreamReader`; `AlphaReader` and `BandReader` are thin wrappers); `focus_pass.py`. Hooks into existing code: `DriveScene` (`self.focus`, sets `director.qte_window`, calls `director.pass_by_focus()`, draws the meter), `EventDirector` (`qte_window`, `pass_by_focus`, `input` in history), `Qte` (`succeed_by_focus`, `via`), `App` (`--attention`, `--no-attention-log`). Tests: `tests/test_attention.py`.
+
+**Known gaps.** The index is a noisy proxy and not validated against any ground truth for "attention". Muscle activity (clenching the jaw or frowning, which is also what "focusing hard" tends to look like) raises high beta and gamma, so a player can pass by tensing up; there is no artifact rejection. Broadband artifacts (movement, electrode pops) also push the ratio up and can give free passes. In recorded real data the raw value swung by more than +-100% and the smoothed level by tens of percent, so `pass_level` and `hold_s` are untuned guesses: check the `[attention]` / `[focus]` console log and tune. For about the first minute after the publisher starts the filters are still settling (band power in the millions), so start the game about a minute after the publisher; calibration done on that transient is not representative. Channel indices are nominal, not read from stream labels.
 
 ## Conventions
 

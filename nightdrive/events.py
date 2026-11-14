@@ -65,6 +65,9 @@ class EventDirector:
         self.world = world
         self.rng = rng or random.Random()
         self.state = IDLE
+        self.qte_window = (
+            S.QTE_WINDOW
+        )  # the scene may lengthen it, e.g. when focus can pass
         self.qte = None
         self.event = None
         self.actor = None
@@ -92,10 +95,10 @@ class EventDirector:
         self.event = self.rng.choice(choices)
         self._last_event = self.event.name
         self._last_letter = random_letter(self.rng, self._last_letter)
-        self.qte = Qte(self._last_letter, S.QTE_WINDOW)
+        self.qte = Qte(self._last_letter, self.qte_window)
 
         w = self.world
-        reach = max(w.speed, S.CRUISE_SPEED * 0.6) * S.QTE_WINDOW
+        reach = max(w.speed, S.CRUISE_SPEED * 0.6) * self.qte_window
         lane = S.LANE_X + self.rng.uniform(-0.1, 0.1)
         side = self.rng.choice([-1, 1])
         self.actor = Actor(
@@ -113,6 +116,11 @@ class EventDirector:
     def press(self, letter):
         if self.state == QTE:
             self.qte.press(letter)
+
+    def pass_by_focus(self):
+        """Pass the running quick-time event with attention instead of the key."""
+        if self.state == QTE:
+            self.qte.succeed_by_focus()
 
     def reset(self):
         """Drop whatever is going on (e.g. when leaving to the menu)."""
@@ -156,6 +164,7 @@ class EventDirector:
                 "letter": self.qte.letter,
                 "result": self.qte.result,
                 "reaction": self.qte.reaction,
+                "input": self.qte.via,
             }
         )
 

@@ -1,4 +1,5 @@
-"""Quick-time event logic: press the prompted letter before time runs out. No drawing here."""
+"""Quick-time event logic: press the prompted letter (or pass by focus) before time runs out.
+No drawing here."""
 
 import random
 import string
@@ -17,7 +18,10 @@ class Qte:
     window: float
     elapsed: float = 0.0
     result: str | None = None
-    reaction: float | None = None  # seconds from prompt to key press
+    reaction: float | None = (
+        None  # seconds from prompt to key press (or to the focus pass)
+    )
+    via: str = "key"  # how it was answered: "key" or "focus"
 
     @property
     def remaining(self) -> float:
@@ -29,6 +33,13 @@ class Qte:
             self.elapsed += dt
             if self.elapsed >= self.window:
                 self.result = TIMEOUT
+
+    def succeed_by_focus(self):
+        """The player passed with their attention instead of the key."""
+        if self.result is None:
+            self.reaction = self.elapsed
+            self.via = "focus"
+            self.result = SUCCESS
 
     def press(self, letter: str):
         """A wrong letter fails immediately, so mashing keys doesn't work."""

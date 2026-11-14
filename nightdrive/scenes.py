@@ -145,11 +145,11 @@ class DriveScene:
         self.world.cruise = S.CRUISE_SPEED
         app.music.start()
         world.headlights.reset()
-        world.headlights.flicker_enabled = True
+        world.headlights.flicker_enabled = S.HEADLIGHTS_ENABLED
         world.score.reset()
         world.actors.clear()  # nobody left standing by the road from a previous run
         world.button_flicker = (
-            True  # the headlight button flickers: the future SSVEP stimulus
+            S.HEADLIGHTS_ENABLED  # the headlight button flickers: the future SSVEP stimulus
         )
         world.button_hz = app.light_switch.stimulus_hz
         self.rng = random.Random(app.seed)
@@ -194,11 +194,13 @@ class DriveScene:
         return self.director.active or self.ghost.active or self.roadside.active
 
     def toggle_lights(self):
+        if not S.HEADLIGHTS_ENABLED:  # headlight features are switched off for now
+            return
         self.world.headlights.toggle()
         self.app.sfx.play_lights(self.world.headlights.on)
 
     def handle_event(self, event):
-        if self.app.light_switch.handle_event(
+        if S.HEADLIGHTS_ENABLED and self.app.light_switch.handle_event(
             event
         ):  # a click on the dashboard button, or later a BCI
             self.toggle_lights()
@@ -230,8 +232,9 @@ class DriveScene:
             elif letter == "C":
                 self.sim_away = not self.sim_away  # debug: toggle looking away
             elif letter in "MHI" and not self._scare_running():
-                if letter == "M":  # debug: a monster by the road
-                    self.roadside.start_monster()
+                if letter == "M":  # debug: a monster by the road (needs the headlights)
+                    if S.HEADLIGHTS_ENABLED:
+                        self.roadside.start_monster()
                 elif (
                     S.HITCHHIKERS_ENABLED
                 ):  # debug: H = a hitchhiker (maybe), I = an impostor
@@ -249,9 +252,9 @@ class DriveScene:
             self.director.pass_by_focus()
         self.world.update(dt)
         self.world.score.update(dt)
-        if self.app.light_switch.update(dt):
+        if S.HEADLIGHTS_ENABLED and self.app.light_switch.update(dt):
             self.toggle_lights()
-        self.world.button_hover = self.app.light_switch.hover
+        self.world.button_hover = S.HEADLIGHTS_ENABLED and self.app.light_switch.hover
         self.director.update(dt)
         flickering = self.world.headlights.flickering
         if flickering and not self._was_flickering:
@@ -386,6 +389,8 @@ class DriveScene:
             surf.blit(hint, hint.get_rect(topright=(S.W - 6, 10)))
 
     def _draw_light_switch_status(self, surf):
+        if not S.HEADLIGHTS_ENABLED:
+            return
         text = (
             self.app.light_switch.status_text
         )  # e.g. "SSVEP: CALIBRATING 40%  LOOK AT THE ROAD"
@@ -414,6 +419,8 @@ class DriveScene:
             )
 
     def _draw_headlight_hint(self, surf):
+        if not S.HEADLIGHTS_ENABLED:
+            return
         lights = self.world.headlights
         if lights.flickering and lights.on:
             if int(self.elapsed * 3) % 2 == 0:

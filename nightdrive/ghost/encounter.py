@@ -1,8 +1,10 @@
 """Ghost encounter state machine. Pure logic: no drawing, no EEG, time is a parameter.
 
 Flow: IDLE -> ACTIVE (ghost appears, player must keep eyes closed) -> PASSED or DEAD.
+The first `relax_s` seconds of ACTIVE are a relax phase: the player gets time to calm down and
+close their eyes, and nothing counts yet (no progress, no deadline, no passing, no dying).
 The caller says how far the player got (`progress` 0..1, `passed`) every frame;
-this class only owns the deadline and the outcome.
+this class only owns the relax phase, the deadline and the outcome.
 """
 
 from dataclasses import dataclass
@@ -14,7 +16,8 @@ IDLE, ACTIVE, PASSED, DEAD = "idle", "active", "passed", "dead"
 class GhostConfig:
     first_delay: tuple[float, float] = (20.0, 35.0)  # seconds until the first ghost
     interval: tuple[float, float] = (35.0, 60.0)  # seconds between ghosts
-    deadline_s: float = 10.0  # time allowed to keep the eyes closed for the full hold
+    relax_s: float = 3.0  # time to calm down first: nothing counts and no bars show yet
+    deadline_s: float = 10.0  # time allowed (after the relax phase) to keep the eyes closed for the full hold
     relief_s: float = 2.2  # how long the "ghost passes" message stays
     signal_grace_s: float = (
         4.0  # EEG lost this long during a ghost -> ghost leaves, no death
@@ -30,6 +33,7 @@ class GhostEncounter:
     def reset(self) -> None:
         self.state = IDLE
         self.time_left = 0.0
+        self.relax_left = 0.0
         self.progress = 0.0
         self.relief_left = 0.0
         self._lost_s = 0.0
@@ -42,10 +46,16 @@ class GhostEncounter:
     def dead(self) -> bool:
         return self.state == DEAD
 
+    @property
+    def relaxing(self) -> bool:
+        """The ghost is here but counting has not started yet."""
+        return self.state == ACTIVE and self.relax_left > 0
+
     def start(self) -> bool:
         if self.active:
             return False
         self.state = ACTIVE
+        self.relax_left = self.cfg.relax_s
         self.time_left = self.cfg.deadline_s
         self.progress = 0.0
         self._lost_s = 0.0
@@ -58,7 +68,10 @@ class GhostEncounter:
         passed: bool = False,
         signal_ok: bool = True,
     ) -> None:
-        if self.state == ACTIVE:
+        if self.state == ACTIVE and self.relax_left > 0:
+            self.relax_left = max(0.0, self.relax_left - dt)  # nothing counts yet
+            self.progress = 0.0
+        elif self.state == ACTIVE:
             self.progress = progress
             if passed:
                 self.state = PASSED

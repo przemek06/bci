@@ -77,9 +77,14 @@ class World:
         surf.blit(a.cockpit, (0, dy))
         art.draw_gauge(surf, speed_frac, dy)
         art.draw_wheel(surf, self.steer, dy)
-        lit = (
-            stimulus_lit(self.clock(), self.button_hz) if self.button_flicker else True
-        )
-        art.draw_light_button(surf, lit, self.headlights.on, self.button_hover, dy)
-        art.draw_headlight_lamp(surf, self.headlights, self.t, dy)
+        if (
+            S.HEADLIGHTS_ENABLED
+        ):  # the dashboard button and lamp are part of the headlight features
+            lit = (
+                stimulus_lit(self.clock(), self.button_hz)
+                if self.button_flicker
+                else True
+            )
+            art.draw_light_button(surf, lit, self.headlights.on, self.button_hover, dy)
+            art.draw_headlight_lamp(surf, self.headlights, self.t, dy)
         art.draw_score(surf, self.score.display, dy)

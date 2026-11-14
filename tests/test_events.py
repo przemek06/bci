@@ -70,7 +70,7 @@ def test_wrong_key_ends_game_when_reaching_creature():
     d.press(wrong)
     d.update(1 / 60)
     assert d.state == IMPACT
-    run(d, w, 2.0)
+    run(d, w, S.QTE_WINDOW + 0.5)  # long enough for the car to reach the creature
     assert d.state == DEAD
     assert d.history[0]["result"] == WRONG_KEY
 

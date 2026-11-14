@@ -63,6 +63,12 @@ class App:
         # attention index -> focus can pass quick-time events (see focus_pass.py); "off" = unchanged
         self.attention = make_attention_source(attention, log=attention_log)
         self.attention.start()
+        if lights != "click" and not S.HEADLIGHTS_ENABLED:
+            print(
+                "[headlights] switched off for now (settings.HEADLIGHTS_ENABLED = False): --lights is ignored",
+                flush=True,
+            )
+            lights = "click"  # no SSVEP reader / stimulus while the feature is off
         self.light_switch = make_light_switch(
             lights, self, log=ssvep_log
         )  # how the headlight button is operated

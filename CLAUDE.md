@@ -105,7 +105,7 @@ data/sessions/               # per-session logs (git-ignored)
 
 ## Implemented: g.Pype BCI + eyes-closed ghost scare
 
-An experimental feature that already exists. It is separate from the planned `AttentionSource` / `DistractionDetector` path (that still does not exist). A ghost appears suddenly; the player must keep their eyes closed for `hold_s` (3 s) within `deadline_s` (8 s), detected from occipital alpha (alpha rises strongly when the eyes close). Fail and the ghost kills the run (full-screen jump scare, then the normal game-over screen). Keyboard fallback: hold SPACE.
+An experimental feature that already exists. It is separate from the planned `AttentionSource` / `DistractionDetector` path (that still does not exist). A ghost appears suddenly with the prompt "RELAX AND CLOSE YOUR EYES"; for the first `GhostConfig.relax_s` (3 s) nothing counts and no bars show, so the player can calm down; then the player must keep their eyes closed for `hold_s` (`EyesClosedConfig`, currently 1.2 s) within `deadline_s` (`GhostConfig`, 10 s, counted from the end of the relax time), detected from occipital alpha (alpha rises strongly when the eyes close). Fail and the ghost kills the run (full-screen jump scare, then the normal game-over screen). Keyboard fallback: hold SPACE.
 
 ```
 python tools/gpype_alpha_stream.py        # terminal 1: Unicorn -> g.Pype -> LSL stream "NightDriveAlpha"
@@ -178,6 +178,8 @@ Code: `nightdrive/gaze/` (`tracker.py` `GazeTracker` + `GazeMonitor`, `webcam_so
 
 ## Implemented: roadside monster and hitchhikers
 
+**The monster is off while the headlight features are off** (`settings.HEADLIGHTS_ENABLED = False`, see the headlight section): it only makes sense with switchable lights.
+
 **Hitchhikers are switched off for now** (`settings.HITCHHIKERS_ENABLED = False`): nothing spawns them and `H`/`I` do nothing, but the code, art, sounds and tests are intact (`start_hitchhiker()` still works), so turning the flag on brings them back. Monsters are unaffected.
 
 Two encounters that stand beside the road (`nightdrive/roadside.py`, pure logic in `RoadsideDirector`; art in `creature_art.py`; HUD in `DriveScene._draw_roadside_hud`; tunables are the `ROADSIDE_*`, `MONSTER_*`, `HITCH_*` block in `settings.py`). One at a time, none during a QTE event or the ghost, and no QTE event or ghost during one (`DriveScene._scare_running()`); spawn timers pause while something else runs.
@@ -190,6 +192,8 @@ Two encounters that stand beside the road (`nightdrive/roadside.py`, pure logic 
 - **Debug keys:** `M` monster, `H` hitchhiker (random), `I` impostor. Tests: `tests/test_roadside.py` (rules with a stand-in world) and the roadside section of `tests/test_integration.py`.
 
 ## Implemented: the headlight button (click or SSVEP)
+
+**All headlight features are switched off for now** (`settings.HEADLIGHTS_ENABLED = False`): the lights stay on, there is no dashboard button or lamp, no flicker, no light switch (so `--lights ssvep` is ignored with a console note), the roadside monster does not spawn (it needs the lights: it notices full lights and loses you when they are off) and the `M` debug key does nothing. The code and its tests are intact: set the flag to `True` to bring everything back. The tests run with it on (`tests/conftest.py`); `tests/test_headlights_off.py` covers the shipped default. The shorter quick-time window in the dark (`QTE_WINDOW_DARK`) stays in the code but cannot trigger while the lights are always on.
 
 The headlights are operated by a big **button on the dashboard** (`art.LIGHT_BUTTON`, `art.draw_light_button`), not by a key. **SPACE does nothing while driving** (it is only "select" in the menus and "retry" on game over; in keyboard eyes mode it is the ghost's "eyes closed"). The button **flickers** at `HEADLIGHT_BUTTON_HZ` (15, a 50% duty square wave from `light_switch.stimulus_lit`, driven by the wall clock `World.clock`, only while driving; steady in the menu): that flicker is the visual stimulus a future SSVEP BCI will look for. Colours: lit half-cycle blue-white = lights on, orange = lights off, black = dark half-cycle; a white border on hover.
 

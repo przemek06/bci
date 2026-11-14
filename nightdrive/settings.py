@@ -36,7 +36,7 @@ PARALLAX_NEAR = 0.10
 BG_WIDTH = 640  # width of the looping background tiles
 
 # Events and quick-time events
-QTE_WINDOW = 1.5  # seconds to press the prompted letter
+QTE_WINDOW = 4.5  # seconds to press the prompted letter
 QTE_WINDOW_DARK = 1.0  # ...when the headlights are off or flickering
 IMPACT_DISTANCE = 900  # world units: when a missed creature gets hit
 AFTERMATH_TIME = 2.2  # seconds the result message stays up
@@ -98,6 +98,9 @@ GAZE_MIN_QUALITY = 0.5
 CALIB_SETTLE = 0.6  # seconds to let the eyes reach each target before sampling
 CALIB_SAMPLE = 1.2  # seconds of samples collected per target
 CALIB_MIN_SAMPLES = 8  # per target, otherwise the target is repeated
+CALIB_MAX_TRIES = (
+    3  # tries per target before it is skipped (a lost face must not stall calibration)
+)
 GAZE_ROAD_BOX = (
     0.15,
     0.15,
@@ -106,6 +109,20 @@ GAZE_ROAD_BOX = (
 )  # looking outside this box counts as looking away
 GAZE_AWAY_TIME = 3.0  # seconds looking away before it counts as distraction
 GAZE_COOLDOWN = 15.0  # seconds after a gaze-triggered event before the next one
+
+# Cop: keep looking away from the road and it escalates (seconds of continuous inattention)
+COP_WARN_TIME = 2.0  # "EYES ON THE ROAD" text
+COP_APPEAR_TIME = 5.0  # a cop shows up and yells
+COP_BUST_TIME = 8.0  # the cop pulls you over: game over
+COP_REGAIN_TIME = 0.5  # looking at the road this long calms everything down
+COP_HIDDEN_GAP = -2500  # world units: the cop car is far behind you, out of sight
+COP_VISIBLE_GAP = 700  # it is drawn once it is this far ahead of the camera
+COP_ALONGSIDE_GAP = 900  # where it first shows up, beside you
+COP_OVERTAKE_GAP = 1500  # how much further ahead it gets by the time it busts you
+COP_STOP_GAP = 2200  # distance ahead where it cuts in front and stops you
+COP_LEFT_OFFSET = -0.05  # the oncoming-traffic lane it overtakes in (LANE_X is yours)
+COP_STOP_HOLD = 1.2  # seconds standing still behind the cop before the game-over screen
+COP_CHANCE = 0.5  # share of gaze distractions that become a cop instead of a monster
 GAZE_SCRCPY_SIZE = "1280x720"  # phone camera resolution when streamed through scrcpy
 GAZE_SCRCPY_FPS = 30
 GAZE_L2CS_FILE = "data/models/L2CSNet_gaze360.pkl"

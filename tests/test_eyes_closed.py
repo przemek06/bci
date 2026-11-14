@@ -57,10 +57,11 @@ def test_closed_eyes_pass_after_hold():
     state, t = feed(det, 0, 5, 0.3)
     assert not state.closed
     det.reset()
-    state, t = feed(det, t, 2.5, 0.8)
+    hold = det.cfg.hold_s  # whatever it is tuned to
+    state, t = feed(det, t, hold * 0.6, 0.8)
     assert state.closed and not state.passed
-    state, t = feed(det, t, 2.5, 0.8)
-    assert state.passed and state.held_s >= 3.0
+    state, t = feed(det, t, hold * 0.8, 0.8)
+    assert state.passed and state.held_s >= hold
 
 
 def test_short_dip_is_forgiven_long_dip_resets():

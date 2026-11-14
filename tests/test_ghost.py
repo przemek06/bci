@@ -134,7 +134,7 @@ def make_drive(seed=5):
 def test_ghost_kills_if_eyes_stay_open():
     app, _down, run = make_drive()
     assert app.scene.ghost.trigger()
-    run(9.0)
+    run(app.scene.ghost.cfg.deadline_s + 1.0)  # past the deadline, eyes never closed
     assert isinstance(app.scene, GameOverScene)
     assert app.scene.event.over_text == "THE GHOST GOT YOU"
     for _ in range(300):  # jump scare + fade + game-over screen render without errors

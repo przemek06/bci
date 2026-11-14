@@ -24,7 +24,7 @@ from statistics import median
 @dataclass(frozen=True)
 class EyesClosedConfig:
     smooth_s: float = 1.0  # moving-average window
-    hold_s: float = 2.0  # eyes must stay closed this long to pass
+    hold_s: float = 1.2  # eyes must stay closed this long to pass
     grace_s: float = 0.5  # dips shorter than this do not reset the hold timer
     stale_s: float = 1.5  # no sample for this long -> signal lost, hold resets
     k_spread: float = 3.0  # threshold = baseline + k * spread ...

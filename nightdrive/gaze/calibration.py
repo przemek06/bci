@@ -9,11 +9,10 @@ from .features import N_BASE, N_KEY
 
 RIDGES = (0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0)
 
-# 3x5 grid of calibration targets (normalised canvas coords)
-# more rows than columns: vertical gaze is the harder axis
-TARGETS = [(x, y) for y in (0.1, 0.3, 0.5, 0.7, 0.9) for x in (0.08, 0.5, 0.92)]
-# second round: the user moves their head while looking at each dot
-MOVING_TARGETS = [(x, y) for y in (0.1, 0.5, 0.9) for x in (0.08, 0.5, 0.92)]
+# 3x3 grid of calibration targets (normalised canvas coords), used for both rounds
+TARGETS = [(x, y) for y in (0.1, 0.5, 0.9) for x in (0.08, 0.5, 0.92)]
+# second round: the same dots, but the user moves their head while looking at each
+MOVING_TARGETS = TARGETS
 
 
 def base_cols(n_features: int, block: int | None) -> np.ndarray:

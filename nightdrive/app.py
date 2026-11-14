@@ -6,6 +6,8 @@ import pygame
 from . import settings as S
 from .art import Art
 from .attention.eyes_source import make_eyes_source
+from .attention.factory import MODES as ATTENTION_MODES
+from .attention.factory import make_attention_source
 from .audio import Music
 from .gaze import l2cs
 from .gaze.base import GazePoint
@@ -25,6 +27,8 @@ class App:
         seed=None,
         eyes="keyboard",
         eyes_log=True,
+        attention="off",
+        attention_log=True,
         audio=True,
         gaze="off",
         camera=0,
@@ -57,6 +61,9 @@ class App:
             eyes, log=eyes_log
         )  # "are the eyes closed?" for the ghost scare
         self.eyes.start()
+        # attention index -> focus can pass quick-time events (see focus_pass.py); "off" = unchanged
+        self.attention = make_attention_source(attention, log=attention_log)
+        self.attention.start()
         self.light_switch = make_light_switch(
             lights, self, log=ssvep_log, method=ssvep_method
         )  # how the headlight button is operated
@@ -183,6 +190,7 @@ class App:
                 self.scene.draw(self.canvas)
                 self.present()
         self.eyes.stop()
+        self.attention.stop()
         self.light_switch.stop()
         pygame.quit()
 
@@ -222,6 +230,17 @@ def main():
         help="don't print live alpha values to the console",
     )
     parser.add_argument(
+        "--attention",
+        choices=ATTENTION_MODES,
+        default="off",
+        help="focus-to-pass quick-time events: off, keyboard (hold UP), random, or bci (headset)",
+    )
+    parser.add_argument(
+        "--no-attention-log",
+        action="store_true",
+        help="don't print the live attention index to the console",
+    )
+    parser.add_argument(
         "--lights",
         choices=("click", "ssvep"),
         default="click",
@@ -243,6 +262,8 @@ def main():
         args.seed,
         eyes=args.eyes,
         eyes_log=not args.no_eyes_log,
+        attention=args.attention,
+        attention_log=not args.no_attention_log,
         gaze=args.gaze,
         camera=args.gaze_camera,
         gaze_model=args.gaze_model,

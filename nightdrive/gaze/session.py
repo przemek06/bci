@@ -15,6 +15,7 @@ class CalibrationSession:
         self.targets = list(targets) if targets else TARGETS + MOVING_TARGETS
         self.n_still = len(TARGETS) if targets is None else len(self.targets)
         self.index = 0
+        self.attempts = 0  # failed tries on the current target
         self.t = 0.0
         self._samples: list[np.ndarray] = []
         self._last_t = -1.0
@@ -47,14 +48,22 @@ class CalibrationSession:
         self.t += dt
         if self.sampling and f is not None and f.t != self._last_t:
             self._last_t = f.t
-            if f.quality >= S.GAZE_MIN_QUALITY and f.skew <= S.GAZE_MAX_SKEW:
+            # after a failed try the camera-sync filter is dropped so a dot can't repeat forever
+            in_sync = f.skew <= S.GAZE_MAX_SKEW or self.attempts > 0
+            if f.quality >= S.GAZE_MIN_QUALITY and in_sync:
                 self._samples.append(f.values)
         if self.t >= S.CALIB_SETTLE + S.CALIB_SAMPLE:
-            if len(self._samples) >= S.CALIB_MIN_SAMPLES:
-                self._features.extend(self._samples)
-                self._labels.extend([self.targets[self.index]] * len(self._samples))
+            enough = len(self._samples) >= S.CALIB_MIN_SAMPLES
+            if not enough:
+                self.attempts += 1
+            # too few samples: retry, but give up on the dot after CALIB_MAX_TRIES
+            if enough or self.attempts >= S.CALIB_MAX_TRIES:
+                if self._samples and (enough or len(self._samples) >= 3):
+                    self._features.extend(self._samples)
+                    self._labels.extend([self.targets[self.index]] * len(self._samples))
                 self.index += 1
-            self.t = 0.0  # next target, or retry this one when too few samples
+                self.attempts = 0
+            self.t = 0.0
             self._samples = []
 
     def fit(self) -> GazeCalibration | GeometricCalibration:

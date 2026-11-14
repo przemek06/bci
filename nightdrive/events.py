@@ -114,6 +114,9 @@ class EventDirector:
         self.world = world
         self.rng = rng or random.Random()
         self.state = IDLE
+        self.qte_window = (
+            S.QTE_WINDOW
+        )  # the scene may lengthen it, e.g. when focus can pass
         self.qte = None
         self.event = None
         self.actor = None  # the creature on the road
@@ -145,11 +148,12 @@ class EventDirector:
         self._last_event = ev.name
         self._last_letter = random_letter(self.rng, self._last_letter)
         w = self.world
+        # The scene may lengthen the window when focus can pass the event (see focus_pass.py).
+        window = self.qte_window
         # Bad headlights mean less time to react, and the creature appears closer too.
         lights = w.headlights
-        window = (
-            S.QTE_WINDOW_DARK if (not lights.on or lights.flickering) else S.QTE_WINDOW
-        )
+        if not lights.on or lights.flickering:
+            window *= S.QTE_WINDOW_DARK / S.QTE_WINDOW
         self.qte = Qte(self._last_letter, window)
         reach = max(w.speed, S.CRUISE_SPEED * 0.6) * window
         z = (w.position + reach) % w.track.length
@@ -169,6 +173,11 @@ class EventDirector:
     def press(self, letter):
         if self.state == QTE:
             self.qte.press(letter)
+
+    def pass_by_focus(self):
+        """Pass the running quick-time event with attention instead of the key."""
+        if self.state == QTE:
+            self.qte.succeed_by_focus()
 
     def reset(self):
         """Drop whatever is going on (e.g. when leaving to the menu)."""
@@ -217,6 +226,7 @@ class EventDirector:
                 "letter": self.qte.letter,
                 "result": self.qte.result,
                 "reaction": self.qte.reaction,
+                "input": self.qte.via,
                 "window": self.qte.window,
             }
         )

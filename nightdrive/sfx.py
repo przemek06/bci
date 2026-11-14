@@ -1,4 +1,4 @@
-"""The sound-effects player. Every sound is a recording from assets/audio/sfx (see samples.py).
+"""The sound-effects player. Sounds are recordings from assets/audio/sfx (see samples.py), except the cop's siren and scare.
 
 Sounds are plain samples, or composites layered from several samples with start offsets and gains
 (jump scares, cues). The player adds stereo panning, seamless loops and ambient one-shots.
@@ -70,6 +70,36 @@ COMPOSITE_VOLUME = {
 }
 
 
+# the cop's sounds are still synthesised: name -> (builder(sr, rng) -> mono in -1..1, volume)
+def _unit(x):
+    peak = np.max(np.abs(x))
+    return x / peak if peak > 0 else x
+
+
+def _siren(sr, rng):
+    """Two-second police wail, a whole number of sweeps so it loops."""
+    t = np.arange(int(2.0 * sr)) / sr
+    freq = 950 + 300 * np.sin(2 * np.pi * t - np.pi / 2)
+    return _unit(np.tanh(2 * np.sin(2 * np.pi * np.cumsum(freq) / sr))) * 0.6
+
+
+def _scare_cop(sr, rng):
+    """Whistle blast and a bang on the window."""
+    t = np.arange(int(1.2 * sr)) / sr
+    freq = 2900 + 150 * np.sin(2 * np.pi * 38 * t)
+    whistle = np.sin(2 * np.pi * np.cumsum(freq) / sr) * np.exp(-t * 1.5)
+    spec = np.fft.rfft(rng.standard_normal(len(t)))
+    freqs = np.fft.rfftfreq(len(t), 1 / sr)
+    spec[(freqs < 80) | (freqs > 3000)] = 0
+    bang = _unit(np.fft.irfft(spec, len(t))) * np.exp(-t * 14)
+    x = _unit(0.7 * whistle + bang)
+    fade = np.minimum(1.0, (len(t) - np.arange(len(t))) / (0.2 * sr))
+    return x * fade
+
+
+SYNTH_SOUNDS = {"scare_cop": (_scare_cop, 1.0), "siren": (_siren, 0.35)}
+
+
 def _layer(base, extra, start, sr, gain=1.0):
     """Mix `extra` into `base` (both stereo) at `start` seconds, growing `base` if needed."""
     i = int(start * sr)
@@ -102,6 +132,9 @@ class Sfx:
                     audio = _layer(audio, layer, start, sr, gain[0] if gain else 1.0)
             if len(audio):
                 self._add(name, audio, COMPOSITE_VOLUME.get(name, 0.7))
+        for name, (builder, volume) in SYNTH_SOUNDS.items():
+            mono = builder(sr, np.random.default_rng(1))
+            self._add(name, np.stack([mono, np.roll(mono, 20)], axis=1), volume)
 
     def _add(self, name, audio, volume):
         audio = audio / max(1.0, float(np.abs(audio).max()))

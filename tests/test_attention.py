@@ -168,31 +168,37 @@ def run_meter(meter, seconds, level, dt=0.05, **kw):
     return meter
 
 
+# Levels relative to whatever pass_level is configured, so these tests survive tuning it.
+PASS = FocusPassConfig().pass_level
+HIGH = PASS + 0.5  # clearly focusing
+SLIP = PASS - 0.3  # clearly below the line
+
+
 def test_meter_passes_after_holding_a_high_level():
     m = FocusMeter()
-    run_meter(m, 0.9, 1.6)
+    run_meter(m, 0.9, HIGH)
     assert not m.passed and 0.8 < m.progress < 1.0
-    run_meter(m, 0.3, 1.6)
+    run_meter(m, 0.3, HIGH)
     assert m.passed
 
 
 def test_meter_does_not_pass_below_the_threshold_or_without_a_good_signal():
-    m = run_meter(FocusMeter(), 10, 1.3)  # 30% above normal is not enough (needs 1.4)
+    m = run_meter(FocusMeter(), 10, PASS - 0.05)  # just under the line is not enough
     assert not m.passed and m.progress == 0.0
-    assert not run_meter(FocusMeter(), 10, 2.0, calibrated=False).passed
-    assert not run_meter(FocusMeter(), 10, 2.0, quality=0.1).passed
+    assert not run_meter(FocusMeter(), 10, HIGH, calibrated=False).passed
+    assert not run_meter(FocusMeter(), 10, HIGH, quality=0.1).passed
 
 
 def test_meter_drains_when_focus_slips_and_forgives_a_short_dip():
     m = FocusMeter()
-    run_meter(m, 0.6, 1.8)
+    run_meter(m, 0.6, HIGH)
     held = m.held
-    run_meter(m, 0.15, 1.0)  # a brief slip
+    run_meter(m, 0.15, SLIP)  # a brief slip
     assert 0 < m.held < held
-    run_meter(m, 0.8, 1.8)  # 0.6 - 2 x 0.15 = 0.3 s left over, 0.7 s more is enough
+    run_meter(m, 0.8, HIGH)  # 0.6 - 2 x 0.15 = 0.3 s left over, 0.7 s more is enough
     assert m.passed  # the slip did not throw the progress away
-    m2 = run_meter(FocusMeter(), 0.6, 1.8)
-    run_meter(m2, 2.0, 1.0)  # long slip: back to zero
+    m2 = run_meter(FocusMeter(), 0.6, HIGH)
+    run_meter(m2, 2.0, SLIP)  # long slip: back to zero
     assert m2.held == 0.0 and not m2.passed
 
 
@@ -285,7 +291,10 @@ def make_world():
         cruise=S.CRUISE_SPEED,
         speed_rate=0.8,
         actors=[],
-        track=SimpleNamespace(length=600_000),
+        headlights=SimpleNamespace(on=True, flickering=False),
+        track=SimpleNamespace(
+            length=600_000, mark=lambda *a: None, clear_marks=lambda: None
+        ),
     )
 
 
@@ -308,6 +317,22 @@ def test_director_records_key_presses_as_keys():
     d.press(d.qte.letter)
     d.update(0.016)
     assert d.history[-1]["input"] == "key"
+
+
+def test_dark_headlights_shorten_the_window_and_the_focus_window_in_proportion():
+    dark = make_world()
+    dark.headlights = SimpleNamespace(on=False, flickering=False)
+    d = EventDirector(dark, random.Random(1))
+    d.trigger()
+    assert d.qte.window == pytest.approx(S.QTE_WINDOW_DARK)  # main's rule, unchanged
+    d2 = EventDirector(dark, random.Random(1))
+    d2.qte_window = 5.0  # focus can pass the event
+    d2.trigger()
+    assert d2.qte.window == pytest.approx(5.0 * S.QTE_WINDOW_DARK / S.QTE_WINDOW)
+    lit = EventDirector(make_world(), random.Random(1))
+    lit.qte_window = 5.0
+    lit.trigger()
+    assert lit.qte.window == pytest.approx(5.0)  # lights on: the focus window as set
 
 
 # --- sources ---------------------------------------------------------------------------

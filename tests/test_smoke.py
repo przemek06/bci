@@ -11,7 +11,7 @@ from nightdrive.scenes import DriveScene, GameOverScene, MenuScene
 
 
 def test_menu_to_drive_and_back():
-    app = App(seed=1)
+    app = App(seed=1, audio=False)
     assert isinstance(app.scene, MenuScene)
     app.scene.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
     assert isinstance(app.scene, DriveScene)
@@ -28,7 +28,7 @@ def test_menu_to_drive_and_back():
 
 
 def test_failed_qte_leads_to_game_over_and_retry():
-    app = App(seed=3)
+    app = App(seed=3, audio=False)
     app.scene.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
     drive = app.scene
     drive.on_distracted()
@@ -45,4 +45,18 @@ def test_failed_qte_leads_to_game_over_and_retry():
     assert over.can_continue
     over.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
     assert isinstance(app.scene, DriveScene) and app.scene.director.history == []
+    pygame.quit()
+
+
+def test_game_with_audio_runs_a_full_fail_cycle():
+    app = App(seed=3, audio=True)
+    app.scene.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    app.scene.on_distracted()
+    for _ in range(600):
+        app.scene.update(1 / 60)
+        app.music.update(1 / 60)
+        if isinstance(app.scene, GameOverScene):
+            break
+    assert isinstance(app.scene, GameOverScene)
+    assert not app.music.playing  # silence for the scare
     pygame.quit()

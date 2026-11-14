@@ -2,6 +2,11 @@ pygame-ce>=2.5
 numpy>=1.26
 pytest>=8
 ruff>=0.6
+mediapipe>=0.10
+opencv-python>=4.9
+certifi
+torch>=2.2
+torchvision>=0.17
 gpype[devices,lsl]>=4.2
 pylsl>=1.16
 scipy>=1.11

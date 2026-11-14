@@ -22,6 +22,7 @@ class Segment:
     y2: float
     curve: float
     props: list = field(default_factory=list)
+    marking: str | None = None  # "crosswalk" or "crossroads", painted by the renderer
 
 
 def _ease_in(a, b, p):
@@ -40,12 +41,26 @@ class Track:
     def __init__(self, seed=None):
         self.rng = random.Random(seed)
         self.segments: list[Segment] = []
+        self._marked: list[Segment] = []
         self._build_road()
         self.length = len(self.segments) * S.SEGMENT_LENGTH
         self._place_props()
 
     def segment_at(self, z):
         return self.segments[int(z // S.SEGMENT_LENGTH) % len(self.segments)]
+
+    def mark(self, z, kind, count):
+        """Paint `count` segments around world position `z` as a crosswalk or crossroads."""
+        start = int(z // S.SEGMENT_LENGTH) - count // 2
+        for i in range(count):
+            seg = self.segments[(start + i) % len(self.segments)]
+            seg.marking = kind
+            self._marked.append(seg)
+
+    def clear_marks(self):
+        for seg in self._marked:
+            seg.marking = None
+        self._marked.clear()
 
     # --- road shape -------------------------------------------------------
 

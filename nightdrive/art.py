@@ -9,12 +9,24 @@ from . import settings as S
 
 
 class Sprite:
-    def __init__(self, surf, world_h, glow=None, glow_color="warm"):
+    def __init__(
+        self,
+        surf,
+        world_h,
+        glow=None,
+        glow_color="warm",
+        glow_scale=0.16,
+        glow_floor=0.3,
+    ):
         self.surf = surf
         self.world_h = world_h  # height in world units
         self.aspect = surf.get_width() / surf.get_height()
         self.glow = glow  # (fx, fy) position of a light as a fraction of the sprite
         self.glow_color = glow_color
+        self.glow_scale = (
+            glow_scale  # glow radius as a fraction of the sprite's drawn height
+        )
+        self.glow_floor = glow_floor  # how bright it stays when far away (0..1)
 
 
 def _surf(w, h):
@@ -253,6 +265,77 @@ def draw_gauge(surf, speed_frac, dy):
         pygame.draw.rect(surf, col, (132 + i * 4, S.H - 33 + dy, 3, 3))
 
 
+# 3x5 pixel digits for the dashboard score
+_DIGITS = {
+    "0": "111101101101111", "1": "010110010010111", "2": "111001111100111",
+    "3": "111001111001111", "4": "101101111001001", "5": "111100111001111",
+    "6": "111100111101111", "7": "111001001001001", "8": "111101111101111",
+    "9": "111101111001111",
+}  # fmt: skip
+SCORE_DIGITS = 6
+SCORE_BOX = pygame.Rect(
+    205, S.H - 33, SCORE_DIGITS * 4 + 3, 9
+)  # right of the speed gauge
+LCD_LIT, LCD_DIM, LCD_BG = (255, 176, 64), (46, 32, 14), (14, 10, 6)
+
+
+def _draw_digit(surf, ch, x, y, color):
+    for i, bit in enumerate(_DIGITS[ch]):
+        if bit == "1":
+            surf.set_at((x + i % 3, y + i // 3), color)
+
+
+def draw_score(surf, value, dy):
+    """Amber LCD on the dashboard: unlit digits dimly behind, the score lit in front."""
+    box = SCORE_BOX.move(0, dy)
+    pygame.draw.rect(surf, LCD_BG, box)
+    text = str(max(0, int(value))).rjust(SCORE_DIGITS)[-SCORE_DIGITS:]
+    for i, ch in enumerate(text):
+        x, y = box.x + 2 + i * 4, box.y + 2
+        _draw_digit(surf, "8", x, y, LCD_DIM)  # the unlit segments
+        if ch != " ":
+            _draw_digit(surf, ch, x, y, LCD_LIT)
+
+
+# The headlight button: big and high-contrast, because it is also the SSVEP stimulus (see light_switch.py)
+LIGHT_BUTTON = pygame.Rect(62, S.H - 27, 30, 16)
+
+
+def draw_light_button(surf, lit, lights_on, hover, dy):
+    """The dashboard headlight button. `lit` is its flicker phase: lit and dark halves alternate."""
+    r = LIGHT_BUTTON.move(0, dy)
+    bezel = r.inflate(4, 4)
+    pygame.draw.rect(surf, (10, 12, 18), bezel, border_radius=2)
+    pygame.draw.rect(
+        surf, (230, 235, 255) if hover else (58, 64, 84), bezel, 1, border_radius=2
+    )
+    # blue-white when the lights are on, orange when they are off; black in the dark half-cycle
+    pygame.draw.rect(
+        surf,
+        ((120, 210, 255) if lights_on else (255, 150, 80)) if lit else (4, 5, 8),
+        r,
+    )
+    icon = (4, 5, 8) if lit else (40, 44, 58)
+    cx, cy = r.x + 9, r.centery
+    pygame.draw.circle(surf, icon, (cx, cy), 4)  # the lamp...
+    for k in (-4, 0, 4):  # ...and its beams
+        pygame.draw.line(surf, icon, (cx + 7, cy + k // 2), (cx + 18, cy + k), 1)
+
+
+def draw_headlight_lamp(surf, headlights, t, dy):
+    """Dashboard indicator left of the gauge: blue when on, flashing amber when flickering."""
+    if not headlights.on:
+        col = (24, 28, 34)
+    elif headlights.flickering:
+        col = (255, 170, 40) if int(t * 8) % 2 == 0 else (60, 40, 14)
+    else:
+        col = (70, 170, 255)
+    x, y = 114, S.H - 34 + dy
+    pygame.draw.rect(surf, (10, 13, 18), (x - 2, y - 2, 12, 9))
+    pygame.draw.rect(surf, col, (x, y, 8, 5))
+    pygame.draw.rect(surf, col, (x + 2, y - 1, 4, 7))
+
+
 def draw_wheel(surf, angle, dy):
     cx, cy, rx, ry = S.W // 2, S.H + 10 + dy, 52, 36
     rim, hi = (24, 24, 30), (62, 64, 78)
@@ -411,10 +494,21 @@ class Art:
     def __init__(self, seed=0):
         rng = random.Random(seed)
         self.sprites = make_sprites()
-        self.glows = {"warm": make_glow(), "red": make_glow((1.0, 0.2, 0.15))}
+        self.glows = {
+            "warm": make_glow(),
+            "red": make_glow((1.0, 0.2, 0.15)),
+            "ice": make_glow((0.5, 0.85, 1.0)),
+            "acid": make_glow((0.6, 1.0, 0.3)),
+        }
         self.pool = make_pool()
         self.sky = make_sky()
         self.stars = make_stars(rng)
         self.hills = make_hills(rng)
         self.cockpit = make_cockpit()
         self.jumpscares = make_jumpscares()
+        from . import (
+            creature_art,  # imported here because it builds on the helpers above
+        )
+
+        self.sprites.update(creature_art.make_sprites())
+        self.jumpscares.update(creature_art.make_jumpscares())

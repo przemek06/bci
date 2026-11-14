@@ -13,7 +13,10 @@ def make_world():
         cruise=S.CRUISE_SPEED,
         speed_rate=0.8,
         actors=[],
-        track=SimpleNamespace(length=600_000),
+        headlights=SimpleNamespace(on=True, flickering=False),
+        track=SimpleNamespace(
+            length=600_000, mark=lambda *a: None, clear_marks=lambda: None
+        ),
     )
 
 
@@ -80,3 +83,53 @@ def test_timeout_ends_game():
     assert d.state == DEAD
     assert d.history[0]["result"] == TIMEOUT
     assert d.saved_count == 0
+
+
+def test_every_event_has_its_art():
+    from nightdrive.art import Art
+    from nightdrive.events import CATALOGUE
+
+    art = Art()
+    for ev in CATALOGUE:
+        assert ev.sprite in art.sprites, ev.name
+        assert ev.name in art.jumpscares, ev.name
+
+
+def test_every_event_can_be_survived_and_can_kill():
+    from nightdrive.events import CATALOGUE
+
+    for ev in CATALOGUE:
+        for press_right in (True, False):
+            w = make_world()
+            d = EventDirector(w, random.Random(0))
+            d._last_event = None
+            d.rng = SimpleNamespace(
+                choice=lambda seq, ev=ev: ev if ev in seq else seq[0],
+                uniform=random.Random(0).uniform,
+            )
+            assert d.trigger() and d.event is ev
+            if press_right:
+                d.press(d.qte.letter)
+                run(d, w, S.AFTERMATH_TIME + 0.5)
+                assert d.state == IDLE and w.actors == [], ev.name
+            else:
+                run(d, w, S.QTE_WINDOW + 1.5)
+                assert d.state == DEAD, ev.name
+
+
+def test_bad_headlights_shorten_the_qte_window():
+    for on, flickering, expected in (
+        (True, False, S.QTE_WINDOW),
+        (False, False, S.QTE_WINDOW_DARK),
+        (True, True, S.QTE_WINDOW_DARK),
+    ):
+        w = make_world()
+        w.headlights.on, w.headlights.flickering = on, flickering
+        d = EventDirector(w, random.Random(1))
+        d.trigger()
+        assert d.qte.window == expected
+        # the creature is placed so the car reaches it right as the window ends
+        assert abs(w.actors[0].z - w.speed * expected) < 1
+        run(d, w, expected + 0.05)
+        assert d.qte.result == TIMEOUT
+        assert d.history == [] or d.history[0]["window"] == expected

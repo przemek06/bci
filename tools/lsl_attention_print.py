@@ -7,12 +7,12 @@ numbers match the game's [attention] log):
 
 It first records your own baseline (about 23 s: keep your eyes open and sit still), then prints
 `level` = attention relative to that baseline: 1.0 = your normal, 1.4 = 40% above it. The bar
-shows the level; the `|` marks the level that passes a quick-time event by focus (1.4).
+shows the level; the `|` marks the level that passes a quick-time event by focus (1.0).
 Start tools/gpype_alpha_stream.py first (and give it about a minute to settle).
 
 Usage:
     python tools/lsl_attention_print.py
-    python tools/lsl_attention_print.py --pass-level 1.5
+    python tools/lsl_attention_print.py --pass-level 1.2
 """
 
 import argparse
@@ -44,8 +44,8 @@ def main() -> None:
     ap.add_argument(
         "--pass-level",
         type=float,
-        default=1.4,
-        help="level marked with | (default 1.4)",
+        default=1.0,
+        help="level marked with | (default 1.0, the game's FocusPassConfig.pass_level)",
     )
     args = ap.parse_args()
 

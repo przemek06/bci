@@ -25,7 +25,7 @@ SHADOW = (5, 6, 16)
 
 @dataclass(frozen=True)
 class FocusPassConfig:
-    pass_level: float = 1.4  # level at or above this = focusing hard (40% above normal)
+    pass_level: float = 1.0  # level at or above this = focusing hard (40% above normal)
     hold_s: float = 1.0  # ... for this long to pass
     drain: float = (
         2.0  # while below, progress drains this many times faster than it fills

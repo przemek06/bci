@@ -5,6 +5,8 @@ import pygame
 
 from . import settings as S
 from .art import Art
+from .attention.eyes_source import make_eyes_source
+from .audio import Music
 from .gaze import l2cs
 from .gaze.base import GazePoint
 from .gaze.calibration import GazeCalibration
@@ -12,11 +14,21 @@ from .gaze.mouse_source import MouseGazeSource
 from .gaze.tracker import GazeTracker
 from .gaze.webcam_source import WebcamGazeSource, detect_cameras, parse_camera
 from .scenes import MenuScene
+from .sfx import Sfx
 from .world import World
 
 
 class App:
-    def __init__(self, seed=None, gaze="off", camera=0, gaze_model="auto"):
+    def __init__(
+        self,
+        seed=None,
+        eyes="keyboard",
+        eyes_log=True,
+        audio=True,
+        gaze="off",
+        camera=0,
+        gaze_model="auto",
+    ):
         pygame.init()
         pygame.display.set_caption("Night Drive")
         self.fullscreen = False
@@ -32,6 +44,12 @@ class App:
         self.font_big = pygame.font.Font(None, 28)
         self.font_small = pygame.font.Font(None, 14)
         self.assets = Art()
+        self.music = Music(enabled=audio)
+        self.sfx = Sfx(enabled=audio)
+        self.eyes = make_eyes_source(
+            eyes, log=eyes_log
+        )  # "are the eyes closed?" for the ghost scare
+        self.eyes.start()
         self.gaze_mode = (
             gaze if gaze != "off" else "webcam"
         )  # source used when toggled on
@@ -132,17 +150,25 @@ class App:
                     self.quit()
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
                     self.toggle_fullscreen()
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_F10:
+                    self.music.toggle_mute()
+                    self.sfx.toggle_mute()
                 else:
                     self.scene.handle_event(event)
+            self.eyes.update()  # keeps calibration + live alpha log running in every scene
             if self.gaze:
                 self.gaze.update()
             self.scene.update(dt)
-            if getattr(self.scene, "draws_window", False):
+            self.music.update(dt)
+            if getattr(
+                self.scene, "draws_window", False
+            ):  # e.g. the full-screen gaze calibration
                 self.scene.draw_window(pygame.display.get_surface())
                 pygame.display.flip()
             else:
                 self.scene.draw(self.canvas)
                 self.present()
+        self.eyes.stop()
         pygame.quit()
 
 
@@ -169,5 +195,23 @@ def main():
         default="auto",
         help="gaze estimator: l2cs (neural net, needs torch; best with head movement) or mediapipe (iris landmarks only); auto uses l2cs when torch is installed",
     )
+    parser.add_argument(
+        "--eyes",
+        choices=("keyboard", "bci"),
+        default="keyboard",
+        help="ghost scare input: hold SPACE (keyboard) or alpha waves from the headset (bci)",
+    )
+    parser.add_argument(
+        "--no-eyes-log",
+        action="store_true",
+        help="don't print live alpha values to the console",
+    )
     args = parser.parse_args()
-    App(args.seed, args.gaze, args.gaze_camera, args.gaze_model).run()
+    App(
+        args.seed,
+        eyes=args.eyes,
+        eyes_log=not args.no_eyes_log,
+        gaze=args.gaze,
+        camera=args.gaze_camera,
+        gaze_model=args.gaze_model,
+    ).run()

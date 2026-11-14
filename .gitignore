@@ -6,3 +6,15 @@ __pycache__/
 data/
 .DS_Store
 .idea
+asset_packs/
+
+# Audio never goes into git or its history (large, and some licenses forbid redistribution).
+# Recreate assets/audio from asset_packs/ with: python tools/import_audio.py
+assets/audio/music/
+assets/audio/sfx/
+*.wav
+*.mp3
+*.ogg
+*.flac
+# archives of the audio folder (e.g. assets.zip) must not slip in either
+*.zip

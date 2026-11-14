@@ -11,28 +11,56 @@ class RoadRenderer:
     def __init__(self, track, art):
         self.track = track
         self.art = art
-        self.fog = []  # visibility 0..1 per segment distance
-        self.palette = []  # per distance, per colour band: (grass, rumble, road, lane)
         self._glow_cache = {}
-        for n in range(S.DRAW_DISTANCE):
-            f = 1 / math.exp((n / S.DRAW_DISTANCE) ** 2 * S.FOG_DENSITY)
-            self.fog.append(f)
-            bands = []
-            for band in (0, 1):
-                cols = [
-                    S.GRASS[band],
-                    S.RUMBLE[band],
-                    S.ROAD[band],
-                    S.LANE if band == 0 else None,
-                ]
-                bands.append([self._mix(c, f) if c else None for c in cols])
-            self.palette.append(bands)
+        self._tables_cache = {}
+        self._pool_cache = {}
+        d = S.DRAW_DISTANCE
+        # visibility 0..1 by distance, with headlights on and off
+        self.fog_on = [math.exp(-S.FOG_DENSITY * (n / d) ** 2) for n in range(d)]
+        self.fog_off = [
+            S.LIGHT_OFF_VISIBILITY * math.exp(-S.LIGHT_OFF_DENSITY * (n / d) ** 2)
+            for n in range(d)
+        ]
+
+    def _tables(self, step):
+        """Fog visibility and fogged colours for a light level (step / LIGHT_STEPS), cached."""
+        tables = self._tables_cache.get(step)
+        if tables is None:
+            k = step / S.LIGHT_STEPS
+            fog = [off + (on - off) * k for on, off in zip(self.fog_on, self.fog_off)]
+            paint = [self._mix((205, 205, 192), f) for f in fog]
+            palette = []
+            for f in fog:
+                bands = []
+                for band in (0, 1):
+                    cols = [
+                        S.GRASS[band],
+                        S.RUMBLE[band],
+                        S.ROAD[band],
+                        S.LANE if band == 0 else None,
+                    ]
+                    bands.append([self._mix(c, f) if c else None for c in cols])
+                palette.append(bands)
+            tables = self._tables_cache[step] = (fog, palette, paint)
+        return tables
+
+    def _pool(self, step):
+        """The warm patch of headlight on the road, dimmed to the current light level."""
+        pool = self._pool_cache.get(step)
+        if pool is None:
+            pool = self.art.pool.copy()
+            v = int(255 * step / S.LIGHT_STEPS)
+            pool.fill((v, v, v), special_flags=pygame.BLEND_RGB_MULT)
+            self._pool_cache[step] = pool
+        return pool
 
     @staticmethod
     def _mix(color, f):
         return tuple(int(fc + (c - fc) * f) for c, fc in zip(color, S.FOG_COLOR))
 
-    def draw(self, surf, position, player_x, actors=(), t=0.0):
+    def draw(self, surf, position, player_x, actors=(), t=0.0, light=1.0):
+        step = round(max(0.0, min(1.0, light)) * S.LIGHT_STEPS)
+        fog, palette, paint = self._tables(step)
         track, L = self.track, S.SEGMENT_LENGTH
         segs, count = track.segments, len(track.segments)
         base = segs[int(position // L) % count]
@@ -64,9 +92,7 @@ class RoadRenderer:
             if sy2 >= sy1 or sy2 >= max_y:
                 continue
 
-            grass, rumble, road, lane = self.palette[n][
-                (seg.index // S.RUMBLE_LENGTH) % 2
-            ]
+            grass, rumble, road, lane = palette[n][(seg.index // S.RUMBLE_LENGTH) % 2]
             pygame.draw.rect(surf, grass, (0, sy2, S.W, sy1 - sy2 + 1))
             r1, r2 = sw1 / 6, sw2 / 6
             poly(
@@ -111,24 +137,62 @@ class RoadRenderer:
                         (sx2 - l2, sy2),
                     ],
                 )
+            if seg.marking:
+                self._draw_marking(
+                    surf,
+                    seg.marking,
+                    paint[n],
+                    road,
+                    (sx1, sy1, sw1),
+                    (sx2, sy2, sw2),
+                )
             max_y = sy1
 
         # Headlight pool on the road just ahead
         surf.blit(
-            self.art.pool,
+            self._pool(step),
             (S.W // 2 - 130, S.H - 70),
             special_flags=pygame.BLEND_RGB_ADD,
         )
-        self._draw_props(surf, visible, actors, t)
+        self._draw_props(surf, visible, actors, t, fog)
 
-    def _draw_props(self, surf, visible, actors, t):
+    @staticmethod
+    def _draw_marking(surf, kind, paint, road, p1, p2):
+        (sx1, sy1, sw1), (sx2, sy2, sw2) = p1, p2
+        if kind == "crossroads":  # asphalt runs right across the grass, no centre line
+            big = S.W * 3
+            pygame.draw.polygon(
+                surf,
+                road,
+                [
+                    (sx1 - big, sy1),
+                    (sx1 + big, sy1),
+                    (sx2 + big, sy2),
+                    (sx2 - big, sy2),
+                ],
+            )
+        elif kind == "crosswalk":  # zebra bars running along the road
+            for i in range(8):
+                a, b = -0.84 + i * 0.24 - 0.06, -0.84 + i * 0.24 + 0.06
+                pygame.draw.polygon(
+                    surf,
+                    paint,
+                    [
+                        (sx1 + sw1 * a, sy1),
+                        (sx1 + sw1 * b, sy1),
+                        (sx2 + sw2 * b, sy2),
+                        (sx2 + sw2 * a, sy2),
+                    ],
+                )
+
+    def _draw_props(self, surf, visible, actors, t, fog):
         count = len(self.track.segments)
         by_seg = {}
         for a in actors:
             by_seg.setdefault(int(a.z // S.SEGMENT_LENGTH) % count, []).append(a)
 
         for n, seg, sx, sy, scale, clip, sx2, sy2, tz1 in reversed(visible):
-            f = self.fog[n]
+            f = fog[n]
             for prop in seg.props:
                 self._blit_sprite(surf, prop.kind, sx, sy, scale, clip, prop.offset, f)
             for a in by_seg.get(seg.index, ()):

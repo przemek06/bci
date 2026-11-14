@@ -5,6 +5,7 @@
 | Lonely Nightmare (music) | Crow Shade | CC BY 4.0, see `licenses/lonely_nightmare_LICENSE.txt`. Credit: "Music by Crow Shade" |
 | Survival Effects [Free] | Darkworld Audio | royalty-free, commercial use and games allowed, no attribution required, see `licenses/darkworld_audio_license.pdf` |
 | Abyssal Horror SFX Vol.1, Beasts, Monsters SFX Vol.1, Monsters Vol.2 | Riria / Ririsaurus | commercial and non-commercial use, credit appreciated, **do not redistribute** (see `licenses/ririsaurus_USAGE.txt`) |
+| FilmCow Royalty Free SFX Library | Jason Steele (FilmCow) | royalty-free, games allowed, no attribution required; no resale, and not for government, law-enforcement or hate-group projects (see `licenses/filmcow_license.pdf`) |
 | Horror SFX Free | YourPalRob | no license file came with the pack; check the terms on the download page |
 
 Only the files the game uses are kept here (`music/`, `sfx/`; git-ignored, rebuilt by the import tool). Where each one comes from is listed in

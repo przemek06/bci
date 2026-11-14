@@ -2,11 +2,14 @@
 
 import math
 import random
+import time
 
 from . import art
 from . import settings as S
 from .headlights import Headlights
+from .light_switch import stimulus_lit
 from .renderer import RoadRenderer
+from .score import Score
 from .track import Track
 
 
@@ -16,6 +19,14 @@ class World:
         self.track = Track(seed)
         self.renderer = RoadRenderer(self.track, assets)
         self.headlights = Headlights(random.Random(seed))
+        self.score = Score()  # reset and advanced by the drive scene
+        # the dashboard headlight button: flickers while driving (set by the drive scene)
+        self.button_flicker = False
+        self.button_hz = S.HEADLIGHT_BUTTON_HZ
+        self.button_hover = False
+        self.clock = (
+            time.perf_counter
+        )  # wall clock for the stimulus, so its frequency is true to life
         self.position = 0.0
         self.speed = 0.0
         self.cruise = S.MENU_SPEED
@@ -66,4 +77,9 @@ class World:
         surf.blit(a.cockpit, (0, dy))
         art.draw_gauge(surf, speed_frac, dy)
         art.draw_wheel(surf, self.steer, dy)
+        lit = (
+            stimulus_lit(self.clock(), self.button_hz) if self.button_flicker else True
+        )
+        art.draw_light_button(surf, lit, self.headlights.on, self.button_hover, dy)
         art.draw_headlight_lamp(surf, self.headlights, self.t, dy)
+        art.draw_score(surf, self.score.display, dy)

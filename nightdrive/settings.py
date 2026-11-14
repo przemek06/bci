@@ -66,7 +66,7 @@ MUSIC_PLAYLIST = (
 MUSIC_VOLUME = 0.8  # master music volume, 0..1
 MUSIC_DUCK = 0.35  # fraction of the volume left during a QTE
 
-# Sound effects (synthesised in sfx.py). The jump-scare sounds are loud by design.
+# Sound effects (recordings, played by sfx.py). The jump-scare sounds are loud by design.
 SFX_VOLUME = 0.7  # master effects volume, 0..1
 ENGINE_VOLUME = 0.12  # engine hum at cruise speed
 
@@ -80,6 +80,9 @@ LIGHT_OFF_DENSITY = 25.0  # how fast it fades with distance with the lights off
 
 # Recorded effects (Horror SFX Free by YourPalRob, Darkworld Audio Survival Effects) and ambience
 AMBIENCE_VOLUME = 0.5  # the frog loop under the drive
+GHOST_RUMBLE_VOLUME = (
+    0.6  # the low drone while the ghost is here (swells as the deadline nears)
+)
 PANIC_VOLUME = 0.6  # breathing during a QTE
 BUZZ_VOLUME = 0.5  # fluorescent buzz while the headlights flicker
 AMBIENT_ONESHOTS = True  # distant yells, bells, creaks now and then (extra sounds can distract: switch off for strict experiments)
@@ -117,3 +120,39 @@ GAZE_CAM0_ABOVE_SCREEN_CM = (
     0.6  # first camera is assumed to sit at the top centre of the screen
 )
 GAZE_MAX_SKEW = 0.1  # seconds between the cameras' newest frames for a sample to be used in calibration
+
+# Score (shown on the dashboard)
+SCORE_PER_SECOND = (
+    10  # points earned per second of driving; other sources can call Score.add()
+)
+
+# Roadside encounters: the monster that must not see your headlights, and the hitchhikers (some are impostors)
+ROADSIDE_SPAWN_DISTANCE = 21000  # world units ahead of the car where an encounter appears (about 3.5 s at cruise)
+ROADSIDE_FIRST_DELAY = (25.0, 45.0)  # seconds before the first monster / hitchhiker
+MONSTER_INTERVAL = (40.0, 75.0)  # seconds between monsters
+HITCH_INTERVAL = (30.0, 55.0)  # seconds between hitchhikers
+ROADSIDE_HINTS_ONLY_FIRST = (
+    True  # on-screen warnings only for the first monster / hitchhiker of the game
+)
+ROADSIDE_RESULT_TIME = 2.2  # how long the result message stays up
+
+MONSTER_SIGHT_AHEAD = 15000  # it can see you from this far ahead...
+MONSTER_SIGHT_BEHIND = 3000  # ...until you are this far past it
+MONSTER_NOTICE_TIME = 1.3  # seconds with the lights fully on to fill its suspicion
+MONSTER_CALM_TIME = 1.0  # seconds for suspicion to drain with the lights off
+MONSTER_LUNGE_TIME = 0.35  # how long it lunges at the car before the jump scare
+MONSTER_BONUS = 150  # points for driving past unseen
+
+HITCH_PICKUP_RANGE = (
+    9000  # you can pick them up from this far ahead (about 1.5 s at cruise)...
+)
+HITCH_PASS_DISTANCE = 1500  # ...until you are this far past them
+HITCH_IMPOSTOR_CHANCE = 0.35
+HITCH_BOARDING_TIME = 1.3  # door opens, shuts, then you find out who got in
+HITCH_BONUS = 100  # points for a real passenger
+
+# Headlight button on the dashboard: a flickering stimulus (the future SSVEP target) that you click for now
+HEADLIGHT_BUTTON_HZ = 15.0  # flicker frequency; 0 = steady. Keep clear of 8-12 Hz (alpha, used by the ghost)
+
+# Roadside hitchhikers are switched off for now (the code stays); monsters are unaffected
+HITCHHIKERS_ENABLED = False

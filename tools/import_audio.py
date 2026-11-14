@@ -15,10 +15,12 @@ OUT = ROOT / "assets" / "audio"
 
 HORROR = "Horror SFX Free"  # by YourPalRob
 DARKWORLD = "Darkworld Audio - Survival Effects [Free]"  # by Darkworld Audio
+FILMCOW = "FilmCow Recorded SFX"  # by Jason Steele (FilmCow)
 NIGHTMARE = "Lonely Nightmare/Lonely Nightmare/MP3"  # by Crow Shade
 ABYSSAL = "Abyssal Horror SFX Vol.1/Abyssal Horror"  # by Riria/Ririsaurus (so are the next two)
 BEASTS = "Beasts/Beasts"
 MONSTERS = "Monsters SFX Vol.1/Monsters"
+MONSTERS2 = "Monsters Vol.2/Monsters Vol.2"
 
 # music name -> file inside asset_packs/
 MUSIC = {
@@ -68,6 +70,49 @@ SFX = {
         for state in ("on", "off")
         for i in (1, 2, 3)
     },
+    # the ghost (FilmCow): stinger, drone, rattles, creaks, knocks, footsteps in the dark, relief
+    "ghost_stinger": f"{FILMCOW}/hit with melodic resonance 1.wav",
+    "ghost_tone": f"{FILMCOW}/metal dinging underwater 9.wav",
+    "ghost_rumble": f"{FILMCOW}/rumbling 4.wav",
+    **{
+        f"ghost_chain_{i}": f"{FILMCOW}/chain {n}.wav"
+        for i, n in enumerate((9, 10, 11, 8), 1)
+    },
+    **{
+        f"ghost_creak_{i}": f"{FILMCOW}/plastic siding strain {n}.wav"
+        for i, n in enumerate((3, 9, 2), 1)
+    },
+    **{f"ghost_knock_{i}": f"{FILMCOW}/door knock {i}.wav" for i in (1, 2, 3)},
+    **{f"ghost_step_{i}": f"{FILMCOW}/footstep leaves {i}.wav" for i in (1, 2, 3, 4)},
+    "ghost_swoosh": f"{FILMCOW}/swoosh 8.wav",
+    "scream_driver": f"{FILMCOW}/scream 2.wav",
+    # replacing the old synthesised sounds
+    "truck_horn": f"{HORROR}/Monsters & Ghosts/Robotic_bass.wav",  # a low buzzy blast
+    "air_brake": f"{HORROR}/Character/Air Compressor Stopping.wav",
+    "riser": f"{HORROR}/Stingers and Spooky Triggers/Slow Stinger.wav",  # only 3.0-4.5 s is used
+    "shriek_c": f"{MONSTERS}/Dinosaur_Shriek5.mp3",  # a giant chicken
+    "shriek_d": f"{MONSTERS}/Dinosaur_Shriek2.mp3",
+    "phone_slam": f"{FILMCOW}/landline phone hang up angry 2.wav",  # "you're fired"
+    "whistle_1": f"{FILMCOW}/slide whistle 7.wav",  # falling slide whistles: a sad trombone
+    "whistle_2": f"{FILMCOW}/slide whistle 6.wav",
+    "whistle_3": f"{FILMCOW}/slide whistle 2.wav",
+    "whistle_4": f"{FILMCOW}/slide whistle 5.wav",
+    "whistle_5": f"{FILMCOW}/slide whistle 16.wav",
+    "bell_ding": f"{FILMCOW}/ding 3.wav",
+    "bonk": f"{FILMCOW}/metal bonk distorted.wav",
+    "squeak_a": f"{FILMCOW}/chair squeak 5.wav",
+    "squeak_b": f"{FILMCOW}/chair squeak 8.wav",
+    "switch_click": f"{FILMCOW}/light switch off.wav",
+    "tv_zap": f"{FILMCOW}/tube tv turn off 4.wav",
+    # the roadside monster and the hitchhikers
+    "monster_growl": f"{MONSTERS}/Monster_SoftGrowl1.mp3",  # it appears
+    "monster_attack": f"{MONSTERS2}/GreaWarg_Attack.wav",  # it saw you
+    "monster_roar": f"{MONSTERS2}/Garmr_Growl.wav",
+    "door_open": f"{FILMCOW}/car sedan door open 1.wav",  # picking someone up
+    "door_shut": f"{FILMCOW}/car sedan door shut 1.wav",
+    "laugh_spooky": f"{HORROR}/Monsters & Ghosts/Laugh_spooky_4.wav",  # the impostor
+    # the car
+    "engine": f"{FILMCOW}/ambience - car sedan inside.wav",
     # night ambience
     "frogs": f"{HORROR}/Ambient/Frogs_pitchshift.wav",
     "amb_yell": f"{HORROR}/Ambient/Distant Yell_Echo and Reverb_2.wav",
@@ -90,6 +135,7 @@ LICENSES = {
     "lonely_nightmare_LICENSE.txt": "Lonely Nightmare/LICENSE.txt",
     "darkworld_audio_license.pdf": f"{DARKWORLD}/License Agreement.pdf",
     "ririsaurus_USAGE.txt": "Beasts/Ririsaurus_Asset_USAGE.txt",
+    "filmcow_license.pdf": f"{FILMCOW}/license.pdf",
 }
 
 

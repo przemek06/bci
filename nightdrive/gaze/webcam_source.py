@@ -29,6 +29,30 @@ def parse_camera(value) -> int | str:
     return int(s) if s.isdigit() else s
 
 
+def adb_serials() -> list[str]:
+    """Serials of USB/network Android devices that are authorised and online."""
+    if not shutil.which("adb"):
+        return []
+    try:
+        out = subprocess.run(
+            ["adb", "devices"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = [line.split() for line in out.splitlines()[1:]]
+    return [r[0] for r in rows if len(r) == 2 and r[1] == "device"]
+
+
+def detect_cameras() -> list[str]:
+    """The built-in camera plus the front camera of every connected Android phone."""
+    phones = adb_serials() if shutil.which("scrcpy") else []
+    return ["0"] + [f"scrcpy:front:{s}" for s in phones]
+
+
 def ensure_model(path: Path = Path(S.GAZE_MODEL_FILE)) -> Path:
     with _model_lock:
         if not path.exists():

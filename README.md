@@ -4,7 +4,7 @@
 Webcam gaze tracking (MediaPipe iris landmarks + a per-user calibration). Looking away from the road for a few seconds triggers a distraction event, replacing the random timer.
 
 ```
-python -m nightdrive --gaze webcam                 # built-in MacBook camera
+python -m nightdrive --gaze webcam                 # auto: built-in camera + every USB phone listed by `adb devices` (needs scrcpy)
 python -m nightdrive --gaze webcam --gaze-camera 1 # other camera index, e.g. iPhone via Continuity Camera
 python -m nightdrive --gaze webcam --gaze-camera http://PHONE_IP:PORT/video   # Android IP-camera app stream
 python -m nightdrive --gaze mouse                  # no hardware: the mouse stands in for the gaze

@@ -10,7 +10,7 @@ from .gaze.base import GazePoint
 from .gaze.calibration import GazeCalibration
 from .gaze.mouse_source import MouseGazeSource
 from .gaze.tracker import GazeTracker
-from .gaze.webcam_source import WebcamGazeSource, parse_camera
+from .gaze.webcam_source import WebcamGazeSource, detect_cameras, parse_camera
 from .scenes import MenuScene
 from .world import World
 
@@ -36,6 +36,8 @@ class App:
             gaze if gaze != "off" else "webcam"
         )  # source used when toggled on
         cams = camera if isinstance(camera, (list, tuple)) else [camera]
+        if list(map(str, cams)) == ["auto"]:
+            cams = detect_cameras()
         self.camera = [parse_camera(c) for c in cams]
         self.use_l2cs = gaze_model == "l2cs" or (
             gaze_model == "auto" and l2cs.available()
@@ -158,8 +160,8 @@ def main():
     parser.add_argument(
         "--gaze-camera",
         nargs="+",
-        default=["0"],
-        help="one or more camera indexes / stream URLs (e.g. phones) for webcam eye tracking",
+        default=["auto"],
+        help="'auto' (default: built-in camera + every USB phone seen by adb) or camera indexes / scrcpy:front:SERIAL / stream URLs",
     )
     parser.add_argument(
         "--gaze-model",

@@ -318,3 +318,12 @@ def test_calibration_skips_a_target_that_never_tracks():
         if s.index:
             break
     assert s.index == 1
+
+
+def test_lost_eyes_count_as_looking_away():
+    from nightdrive import settings as S
+    from nightdrive.gaze.tracker import GazeMonitor
+
+    m = GazeMonitor()
+    fired = [m.update(0.5, None) for _ in range(int(S.GAZE_AWAY_TIME / 0.5) + 1)]
+    assert any(fired)

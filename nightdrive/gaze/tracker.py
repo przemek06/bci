@@ -80,10 +80,9 @@ class GazeMonitor:
 
     def update(self, dt: float, p: GazePoint | None) -> bool:
         self.cooldown = max(0.0, self.cooldown - dt)
-        # no data or poor quality must never count as distraction, nor cancel one in progress
-        if p is None or p.quality < S.GAZE_MIN_QUALITY:
-            return False
-        if not self.is_away(p):
+        # losing the eyes (no face, poor quality) counts as looking away
+        lost = p is None or p.quality < S.GAZE_MIN_QUALITY
+        if not lost and not self.is_away(p):
             self.away = 0.0
             return False
         self.away += dt

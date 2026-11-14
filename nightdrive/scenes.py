@@ -267,7 +267,10 @@ class DriveScene:
         gaze = self.app.gaze
         point = self.app.gaze_canvas_point() if gaze and gaze.ready else None
         tracked = point is not None and point.quality >= S.GAZE_MIN_QUALITY
-        gaze_away = tracked and GazeMonitor.is_away(point)
+        # untrackable eyes or a gaze far off screen both count as looking away
+        gaze_away = bool(gaze and gaze.ready) and (
+            not tracked or GazeMonitor.is_away(point)
+        )
         busy = self.director.active or self.ghost.active
         away = gaze_away or self.sim_away
         if (
@@ -280,9 +283,7 @@ class DriveScene:
         if busy:  # monsters have the player's full attention already
             self.cop.reset()
         else:
-            # untrackable eyes freeze the cop timers instead of resetting them
-            lost = bool(gaze and gaze.ready) and not tracked and not self.sim_away
-            self.cop.update(dt, None if lost else away and self.cop_episode)
+            self.cop.update(dt, away and self.cop_episode)
         if gaze and gaze.ready:
             # gaze replaces the placeholder timer: looking away from the road triggers events
             if (
@@ -307,7 +308,6 @@ class DriveScene:
         self._draw_headlight_hint(surf)
         self.ghost.draw(surf)
         self.cop.draw(surf)
-        self._draw_gaze(surf)
         if self.elapsed < 5:
             alpha = 255 if self.elapsed < 3.5 else int(255 * (5 - self.elapsed) / 1.5)
             hint = self.app.font_small.render(
@@ -335,17 +335,6 @@ class DriveScene:
                 DIM,
                 center=(S.W // 2, S.H - 46),
             )
-
-    def _draw_gaze(self, surf):
-        gaze = self.app.gaze
-        if not gaze or not self.app.show_gaze:
-            return
-        p = self.app.gaze_canvas_point()
-        if p is None:
-            return
-        color = ACCENT if GazeMonitor.is_away(p) else GOOD
-        pos = (int(p.x * S.W), int(p.y * S.H))
-        surf.set_at(pos, color)
 
     def _draw_prompt(self, surf, qte):
         cx, top = S.W // 2, 16

@@ -200,6 +200,7 @@ The headlights are operated by a big **button on the dashboard** (`art.LIGHT_BUT
 ```
 python tools/gpype_eeg_stream.py              # terminal 1: Unicorn -> g.Pype -> LSL stream "NightDriveEEG" (raw occipital EEG)
 python tools/gpype_eeg_stream.py --simulate   # same, no headset: a constant 15 Hz tone (always "attending")
+python tools/gpype_eeg_stream.py --oscar      # with g.Pype OSCAR artifact removal (off by default: never checked against SSVEP)
 python tools/ssvep_sim_stream.py              # no headset, and YOU decide: press Enter to "look at the button" / look away
 python tools/ssvep_sim_stream.py --auto 8:20  # attend 8 s, look away 20 s, repeat (hands-free demo)
 python -m nightdrive --lights ssvep           # terminal 2: the game (add --no-ssvep-log to silence the console log)

@@ -1,4 +1,4 @@
-"""Background music: a shuffled playlist of quiet tracks that fades, ducks and mutes smoothly."""
+"""Background music: a shuffled playlist of quiet tracks that fades and ducks smoothly."""
 
 import random
 
@@ -16,7 +16,6 @@ class Music:
         self.tracks = [t for t in self.tracks if t[0].exists()]
         # Without an audio device (or without the files) the game simply stays silent.
         self.ok = bool(enabled and self.tracks and pygame.mixer.get_init())
-        self.muted = False
         self.duck = False  # turned on while a QTE is running
         self.playing = False
         self.level = 0.0  # current smoothed volume
@@ -26,8 +25,6 @@ class Music:
 
     @property
     def target(self):
-        if self.muted:
-            return 0.0
         return S.MUSIC_VOLUME * (S.MUSIC_DUCK if self.duck else 1.0)
 
     def start(self):
@@ -42,9 +39,6 @@ class Music:
         if self.ok and self.playing:
             self.playing = False
             pygame.mixer.music.stop()
-
-    def toggle_mute(self):
-        self.muted = not self.muted
 
     def update(self, dt):
         if not self.ok or not self.playing:

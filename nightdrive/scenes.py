@@ -7,6 +7,8 @@ from .cop import CopChallenge
 from .events import AFTERMATH, CATALOGUE, DEAD, IMPACT, QTE, EventDirector
 from .gaze.tracker import GazeMonitor
 from .ghost import GhostChallenge
+from .ghost_audio import GhostAudio
+from .roadside import LUNGE, MONSTER, RoadsideDirector
 
 TEXT = (225, 228, 255)
 DIM = (120, 128, 170)
@@ -33,8 +35,13 @@ class MenuScene:
         app.music.start()
         world.headlights.reset()
         world.headlights.flicker_enabled = False
+        world.score.reset()
+        world.button_flicker = False  # the dashboard button only flickers while driving
+        world.button_hover = False
         app.sfx.stop_loop("panic")
         app.sfx.stop_loop("buzz")
+        app.sfx.stop_loop("ghost_rumble")
+        app.sfx.stop_loop("monster_rumble")
         self.selected = 0
         self.veil = pygame.Surface((S.W, S.H), pygame.SRCALPHA)
         self.veil.fill((2, 3, 12, 110))
@@ -113,7 +120,7 @@ class MenuScene:
             )
         draw_text(
             surf,
-            "UP/DOWN + ENTER   F11 FULLSCREEN   F10 MUTE",
+            "UP/DOWN + ENTER",
             self.app.font_small,
             DIM,
             center=(S.W // 2, 149),
@@ -123,7 +130,7 @@ class MenuScene:
         )
         draw_text(
             surf,
-            "SFX: YOURPALROB, DARKWORLD AUDIO, RIRISAURUS",
+            "SFX: YOURPALROB, FILMCOW, DARKWORLD, RIRISAURUS",
             self.app.font_small,
             DIM,
             center=(S.W // 2, 170),
@@ -138,9 +145,23 @@ class DriveScene:
         app.music.start()
         world.headlights.reset()
         world.headlights.flicker_enabled = True
+        world.score.reset()
+        world.actors.clear()  # nobody left standing by the road from a previous run
+        world.button_flicker = (
+            True  # the headlight button flickers: the future SSVEP stimulus
+        )
+        world.button_hz = app.light_switch.stimulus_hz
         self.rng = random.Random(app.seed)
         self.director = EventDirector(world, self.rng)
         self.ghost = GhostChallenge(app)  # close-your-eyes scare, see nightdrive/ghost/
+        self.ghost_audio = GhostAudio(app.sfx, self.ghost, random.Random(app.seed))
+        self.roadside = RoadsideDirector(
+            world,
+            world.score,
+            app.sfx,
+            random.Random(None if app.seed is None else app.seed + 2),
+            app.roadside_hints,
+        )
         self.auto_timer = self.rng.uniform(*S.AUTO_EVENT_RANGE)
         self.elapsed = 0.0
         self.gaze_monitor = GazeMonitor()
@@ -153,17 +174,29 @@ class DriveScene:
         self.sim_away = False  # C key: pretend to look away (no eye tracker needed)
         self._prev_state = self.director.state
         self._was_flickering = False
-        self._ghost_was_active = False
 
     def on_distracted(self, event=None):
         """Called when the player's attention drops. For now fired by a timer or the E key."""
-        if self.ghost.active:  # one scare at a time
+        if self.ghost.active or self.roadside.active:  # one scare at a time
             return
         if self.director.trigger(event):
             self.app.sfx.play("riser")
             self.app.sfx.play_appear(self.director.event.name)
 
+    def _scare_running(self):
+        """A QTE event, the ghost or a roadside encounter is going on: no second one starts."""
+        return self.director.active or self.ghost.active or self.roadside.active
+
+    def toggle_lights(self):
+        self.world.headlights.toggle()
+        self.app.sfx.play_lights(self.world.headlights.on)
+
     def handle_event(self, event):
+        if self.app.light_switch.handle_event(
+            event
+        ):  # a click on the dashboard button, or later a BCI
+            self.toggle_lights()
+            return
         if event.type != pygame.KEYDOWN:
             return
         if event.key == pygame.K_ESCAPE:
@@ -171,12 +204,11 @@ class DriveScene:
             self.app.sfx.stop("riser")
             self.ghost.reset()
             self.cop.reset()
+            self.ghost_audio.stop()
+            self.roadside.reset()
             self.app.set_scene(MenuScene(self.app, self.world))
-        elif event.key == pygame.K_SPACE:
-            # In keyboard mode a ghost challenge means "hold SPACE": that must not flip the lights.
-            if not (self.ghost.active and self.app.eyes.mode == "keyboard"):
-                self.world.headlights.toggle()
-                self.app.sfx.play_lights(self.world.headlights.on)
+        elif event.key == pygame.K_RETURN:  # open the door for a hitchhiker
+            self.roadside.pick_up()
         elif event.key == pygame.K_TAB:  # show/hide the gaze marker
             self.app.show_gaze = not self.app.show_gaze
         elif pygame.K_1 <= event.key <= pygame.K_9:  # debug: trigger a specific event
@@ -187,22 +219,39 @@ class DriveScene:
             letter = chr(event.key).upper()
             if self.director.state == QTE:
                 self.director.press(letter)
-            elif letter == "E" and not self.director.active and not self.ghost.active:
+            elif letter == "E" and not self._scare_running():
                 self.on_distracted()  # debug: trigger an event now
             elif letter == "C":
                 self.sim_away = not self.sim_away  # debug: toggle looking away
+            elif letter in "MHI" and not self._scare_running():
+                if letter == "M":  # debug: a monster by the road
+                    self.roadside.start_monster()
+                elif (
+                    S.HITCHHIKERS_ENABLED
+                ):  # debug: H = a hitchhiker (maybe), I = an impostor
+                    self.roadside.start_hitchhiker(True if letter == "I" else None)
             elif letter == "G":
-                self.ghost.trigger(busy=self.director.active)  # debug: ghost now
+                self.ghost.trigger(
+                    busy=self.director.active or self.roadside.active
+                )  # debug: ghost now
 
     def update(self, dt):
         self.elapsed += dt
         self.world.update(dt)
+        self.world.score.update(dt)
+        if self.app.light_switch.update(dt):
+            self.toggle_lights()
+        self.world.button_hover = self.app.light_switch.hover
         self.director.update(dt)
         flickering = self.world.headlights.flickering
         if flickering and not self._was_flickering:
             self.app.sfx.play("zap")
         self._was_flickering = flickering
-        self.app.music.duck = self.director.state in (QTE, IMPACT) or self.ghost.active
+        self.app.music.duck = (
+            self.director.state in (QTE, IMPACT)
+            or self.ghost.active
+            or self.roadside.mode in (MONSTER, LUNGE)
+        )
         sfx = self.app.sfx
         sfx.engine(self.world.speed / S.CRUISE_SPEED)
         sfx.ambience()
@@ -231,15 +280,13 @@ class DriveScene:
                     self.world,
                     self.director.event,
                     self.elapsed,
-                    self.director.saved_count,
                 )
             )
             self.director.reset()
+            self.roadside.reset()
             return
-        self.ghost.update(dt, busy=self.director.active)
-        if self.ghost.active and not self._ghost_was_active:
-            self.app.sfx.play("ghost_moan")
-        self._ghost_was_active = self.ghost.active
+        self.ghost.update(dt, busy=self.director.active or self.roadside.active)
+        self.ghost_audio.update(dt)
         if self.ghost.dead:
             self.app.set_scene(
                 GameOverScene(
@@ -247,10 +294,22 @@ class DriveScene:
                     self.world,
                     self.ghost.death_event,
                     self.elapsed,
-                    self.director.saved_count + self.ghost.passed_count,
                 )
             )
             self.ghost.reset()
+            self.roadside.reset()
+            return
+        self.roadside.update(dt, busy=self.director.active or self.ghost.active)
+        if self.roadside.dead:
+            self.app.set_scene(
+                GameOverScene(
+                    self.app,
+                    self.world,
+                    self.roadside.death_event,
+                    self.elapsed,
+                )
+            )
+            self.roadside.reset()
             return
         if self.cop.dead:
             self.app.set_scene(
@@ -271,7 +330,7 @@ class DriveScene:
         gaze_away = bool(gaze and gaze.ready) and (
             not tracked or GazeMonitor.is_away(point)
         )
-        busy = self.director.active or self.ghost.active
+        busy = self._scare_running()
         away = gaze_away or self.sim_away
         if (
             away and not self._was_away and self.cop.away == 0.0
@@ -292,7 +351,7 @@ class DriveScene:
                 and not self.cop_episode
             ):
                 self.on_distracted()
-        elif not self.director.active and not self.ghost.active:
+        elif not self._scare_running():
             self.auto_timer -= dt
             if self.auto_timer <= 0:
                 self.on_distracted()
@@ -306,15 +365,43 @@ class DriveScene:
         elif d.message:
             draw_text(surf, d.message, self.app.font_big, GOOD, center=(S.W // 2, 40))
         self._draw_headlight_hint(surf)
+        self._draw_light_switch_status(surf)
+        self._draw_roadside_hud(surf)
         self.ghost.draw(surf)
         self.cop.draw(surf)
         if self.elapsed < 5:
             alpha = 255 if self.elapsed < 3.5 else int(255 * (5 - self.elapsed) / 1.5)
-            hint = self.app.font_small.render(
-                "SPACE - LIGHTS    ESC - MENU    C - LOOK AWAY", False, DIM
-            )
+            hint = self.app.font_small.render("ESC - MENU    C - LOOK AWAY", False, DIM)
             hint.set_alpha(alpha)
             surf.blit(hint, hint.get_rect(topright=(S.W - 6, 10)))
+
+    def _draw_light_switch_status(self, surf):
+        text = (
+            self.app.light_switch.status_text
+        )  # e.g. "SSVEP: CALIBRATING 40%  LOOK AT THE ROAD"
+        if text:
+            draw_text(surf, text, self.app.font_small, DIM, topleft=(6, 24))
+
+    def _draw_roadside_hud(self, surf):
+        r = self.roadside
+        hint = r.hint
+        if not hint:
+            return
+        text, kind = hint
+        color = {"warn": BAD, "calm": DIM, "info": TEXT, "dim": DIM, "good": GOOD}[kind]
+        if kind == "warn" and int(self.elapsed * 4) % 2:
+            color = WARN
+        font = self.app.font_big if kind in ("warn", "good") else self.app.font
+        draw_text(surf, text, font, color, center=(S.W // 2, 40))
+        if r.shows_suspicion_bar:  # how close it is to noticing you
+            bar = pygame.Rect(0, 0, 80, 5)
+            bar.midtop = (S.W // 2, 54)
+            pygame.draw.rect(surf, (6, 8, 20), bar)
+            pygame.draw.rect(
+                surf,
+                BAD,
+                (bar.x + 1, bar.y + 1, int((bar.w - 2) * r.suspicion), bar.h - 2),
+            )
 
     def _draw_headlight_hint(self, surf):
         lights = self.world.headlights
@@ -322,7 +409,7 @@ class DriveScene:
             if int(self.elapsed * 3) % 2 == 0:
                 draw_text(
                     surf,
-                    "HEADLIGHTS FAILING - SPACE: OFF, THEN ON",
+                    "HEADLIGHTS FAILING - CLICK: OFF, THEN ON",
                     self.app.font_small,
                     WARN,
                     center=(S.W // 2, S.H - 46),
@@ -330,7 +417,7 @@ class DriveScene:
         elif not lights.on:
             draw_text(
                 surf,
-                "HEADLIGHTS OFF - SPACE",
+                "HEADLIGHTS OFF - CLICK",
                 self.app.font_small,
                 DIM,
                 center=(S.W // 2, S.H - 46),
@@ -357,12 +444,11 @@ class DriveScene:
 class GameOverScene:
     """Jump scare close-up, fade to black, then the game-over screen."""
 
-    def __init__(self, app, world, event, survived, saved):
+    def __init__(self, app, world, event, survived):
         self.app = app
         self.world = world
         self.event = event
         self.survived = survived
-        self.saved = saved
         self.image = app.assets.jumpscares[event.name]
         app.music.stop()  # silence makes the scare land harder
         app.sfx.stop("riser")
@@ -442,9 +528,15 @@ class GameOverScene:
         )
         draw_text(surf, self.event.over_text, self.app.font, TEXT, center=(cx, 74))
         draw_text(
-            surf, f"TIME  {mins}:{secs:02d}", self.app.font, DIM, center=(cx, 100)
+            surf,
+            f"SCORE  {self.world.score.display}",
+            self.app.font,
+            ACCENT,
+            center=(cx, 100),
         )
-        draw_text(surf, f"SAVED  {self.saved}", self.app.font, DIM, center=(cx, 116))
+        draw_text(
+            surf, f"TIME  {mins}:{secs:02d}", self.app.font, DIM, center=(cx, 118)
+        )
         if self.can_continue and int(self.t * 2) % 2 == 0:
             draw_text(
                 surf,

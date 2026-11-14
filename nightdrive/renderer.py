@@ -240,12 +240,21 @@ class RoadRenderer:
         if spr.glow:
             fx = 1 - spr.glow[0] if flip else spr.glow[0]
             self._draw_glow(
-                surf, x + dw * fx, y + dh * spr.glow[1], dh, f, spr.glow_color
+                surf,
+                x + dw * fx,
+                y + dh * spr.glow[1],
+                dh,
+                f,
+                spr.glow_color,
+                spr.glow_scale,
+                spr.glow_floor,
             )
 
-    def _draw_glow(self, surf, gx, gy, sprite_h, f, color="warm"):
-        radius = max(2, int(sprite_h * 0.16))
-        level = int((0.3 + 0.7 * f) * 8)
+    def _draw_glow(
+        self, surf, gx, gy, sprite_h, f, color="warm", scale=0.16, floor=0.3
+    ):
+        radius = max(2, int(sprite_h * scale))
+        level = int((floor + (1 - floor) * f) * 8)
         key = (radius, level, color)
         glow = self._glow_cache.get(key)
         if glow is None:

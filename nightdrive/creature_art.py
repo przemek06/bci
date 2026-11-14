@@ -131,6 +131,53 @@ def _deep_one():
     return Sprite(s, 2000, (14 / 28, 10 / 46), "acid")
 
 
+def _monster():
+    """A tall, thin figure by the road. Mostly a silhouette: you find it by its glowing eyes."""
+    s = _surf(30, 64)
+    body, rim = (10, 10, 16), (40, 42, 62)
+    for x in (11, 16):  # long legs
+        pygame.draw.rect(s, body, (x, 40, 3, 22))
+        pygame.draw.rect(s, body, (x - 1, 61, 5, 3))
+    pygame.draw.polygon(
+        s, body, [(10, 14), (20, 14), (18, 42), (12, 42)]
+    )  # narrow torso
+    pygame.draw.line(s, rim, (10, 15), (12, 40), 1)
+    for x0, x1 in ((10, 3), (20, 27)):  # arms that reach the knees
+        pygame.draw.line(s, body, (x0, 16), (x1, 46), 2)
+        for dx in (-1, 0, 1):  # long fingers
+            pygame.draw.line(s, body, (x1, 46), (x1 + dx, 54), 1)
+    pygame.draw.rect(s, body, (13, 9, 4, 6))  # neck
+    pygame.draw.ellipse(s, body, (9, 0, 12, 14))  # long skull
+    pygame.draw.line(s, rim, (9, 5), (11, 11), 1)
+    for x in (12, 17):
+        s.set_at((x, 6), (255, 50, 40))
+    for x in range(12, 19):  # a thin pale grin
+        s.set_at((x, 10), (190, 190, 180))
+    return Sprite(s, 3400, (0.5, 6 / 64), "red")
+
+
+def _hitchhiker(impostor):
+    """A person with a thumb out. The impostor is the same drawing with faintly glowing eyes."""
+    s = _surf(22, 44)
+    for x in (7, 12):  # jeans and shoes
+        pygame.draw.rect(s, (40, 58, 98), (x, 28, 3, 14))
+        pygame.draw.rect(s, (20, 20, 26), (x - 1, 41, 5, 3))
+    pygame.draw.rect(s, (122, 82, 42), (3, 13, 5, 14))  # backpack
+    pygame.draw.rect(s, (92, 112, 146), (6, 13, 10, 16))  # hoodie
+    pygame.draw.rect(s, (92, 112, 146), (4, 16, 3, 12))  # arm down
+    pygame.draw.line(s, (92, 112, 146), (15, 15), (19, 8), 3)  # arm out, thumb up
+    pygame.draw.rect(s, (224, 180, 150), (18, 4, 2, 4))
+    pygame.draw.circle(s, (224, 180, 150), (11, 8), 4)  # head
+    pygame.draw.polygon(s, (200, 62, 62), [(7, 7), (8, 2), (14, 2), (15, 7)])  # beanie
+    eyes = (236, 236, 110) if impostor else (30, 30, 40)
+    for x in (9, 13):
+        s.set_at((x, 8), eyes)
+    if not impostor:
+        return Sprite(s, 1800)
+    # a big-ish, bright glow that stays visible from afar: this is the tell
+    return Sprite(s, 1800, (0.5, 8 / 44), "acid", glow_scale=0.34, glow_floor=0.8)
+
+
 def make_sprites():
     return {
         "trump": _trump(),
@@ -138,6 +185,9 @@ def make_sprites():
         "scooter": _scooter_kid(),
         "truck": _truck(),
         "deep_one": _deep_one(),
+        "monster": _monster(),
+        "hitchhiker": _hitchhiker(False),
+        "impostor": _hitchhiker(True),
     }
 
 
@@ -394,6 +444,84 @@ def _deep_one_scare():
     return s
 
 
+def _monster_scare():
+    """It was looking at you the whole time: a huge face at the windscreen, long fingers on the glass."""
+    s = pygame.Surface((S.W, S.H))
+    s.fill((4, 2, 6))
+    rng = random.Random(9)
+    pygame.draw.ellipse(s, (8, 8, 14), (60, 6, 200, 210))
+    pygame.draw.arc(
+        s, (44, 46, 70), (60, 6, 200, 210), math.radians(40), math.radians(140), 3
+    )
+    for ex in (CX - 40, CX + 40):
+        _glow(s, (ex, 76), 44, (255, 40, 30))
+        pygame.draw.ellipse(s, (20, 2, 4), (ex - 22, 62, 44, 28))
+        pygame.draw.ellipse(s, (240, 40, 30), (ex - 19, 64, 38, 24))
+        pygame.draw.ellipse(s, (255, 200, 150), (ex - 10, 68, 20, 16))
+        pygame.draw.rect(s, (0, 0, 0), (ex - 1, 63, 3, 26))  # slit pupil
+    pygame.draw.polygon(
+        s, (22, 2, 6), [(96, 116), (224, 116), (212, 160), (108, 160)]
+    )  # a grin that is far too wide
+    for i in range(18):
+        x = 100 + i * 7
+        pygame.draw.polygon(s, (226, 224, 214), [(x, 116), (x + 7, 116), (x + 3, 130)])
+        pygame.draw.polygon(
+            s, (226, 224, 214), [(x + 1, 159), (x + 6, 159), (x + 3, 146)]
+        )
+    for side in (-1, 1):  # hands pressed against the glass
+        base = 0 if side < 0 else S.W
+        for k in range(5):
+            y = 70 + k * 16
+            pygame.draw.line(
+                s,
+                (14, 14, 22),
+                (base, y + 14),
+                (base - side * (50 + rng.randint(0, 24)), y),
+                5,
+            )
+            pygame.draw.circle(
+                s, (150, 150, 140), (base - side * (50 + rng.randint(0, 24)), y), 2
+            )
+    return s
+
+
+def _impostor_scare():
+    """The friendly face smiles. Then the smile keeps going."""
+    s = pygame.Surface((S.W, S.H))
+    s.fill((16, 14, 22))
+    _glow(s, (CX, 80), 120, (40, 70, 20))
+    pygame.draw.ellipse(s, (222, 180, 148), (82, 30, 156, 148))
+    pygame.draw.polygon(
+        s,
+        (200, 62, 62),
+        [
+            (84, 80),
+            (92, 22),
+            (160, 6),
+            (228, 22),
+            (236, 80),
+            (200, 60),
+            (160, 54),
+            (120, 60),
+        ],
+    )  # the beanie
+    pygame.draw.rect(s, (170, 40, 40), (84, 72, 152, 10))
+    for ex in (CX - 34, CX + 34):
+        _glow(s, (ex, 98), 40, (180, 255, 60))
+        pygame.draw.circle(s, (240, 244, 120), (ex, 98), 20)
+        pygame.draw.circle(s, (20, 30, 10), (ex, 98), 6)
+    pygame.draw.arc(
+        s, (60, 20, 20), (98, 80, 124, 110), math.radians(200), math.radians(340), 3
+    )
+    pygame.draw.rect(
+        s, (30, 4, 8), (96, 132, 128, 28), border_radius=14
+    )  # a grin from ear to ear
+    for i in range(20):
+        pygame.draw.rect(s, (246, 244, 236), (100 + i * 6, 132, 4, 12))
+        pygame.draw.rect(s, (246, 244, 236), (100 + i * 6, 148, 4, 11))
+    return s
+
+
 def make_jumpscares():
     return {
         "trump": _trump_scare(),
@@ -401,4 +529,6 @@ def make_jumpscares():
         "scooter": _scooter_scare(),
         "truck": _truck_scare(),
         "deep_one": _deep_one_scare(),
+        "monster": _monster_scare(),
+        "impostor": _impostor_scare(),
     }

@@ -11,18 +11,22 @@ pip install -r requirements.txt
 python -m nightdrive
 ```
 
-Keys: Enter/arrows in the menu, `Esc` back, `F11` fullscreen, `F10` mute all audio.
-While driving: `Space` toggles the headlights (they flicker now and then: switch them off and on again).
-The close-your-eyes ghost: `python -m nightdrive --eyes keyboard` (hold `Space` for closed eyes, default) or `--eyes bci` (headset, see `CLAUDE.md`).
-Debug while driving: `G` ghost now, `E` random event, `1`-`7` a specific event, `Tab` show/hide the eye-gaze marker.
+Keys: Enter/arrows in the menu, `Esc` back, `F11` fullscreen (not shown in the menu).
+The score is on the dashboard (it rises with time; other sources can add to it later).
+Something may stand by the road. If it is a **monster**, turn your headlights off before it sees you. (Hitchhikers exist in the code but are switched off for now: `HITCHHIKERS_ENABLED` in `settings.py`.)
+While driving: the **headlights are a flickering button on the dashboard: click it** to switch them off or on (they fail now and then: switch them off and on again). It flickers on purpose: it is the stimulus for the SSVEP brain-computer interface (`nightdrive/light_switch.py`). With the headset, run `python tools/gpype_eeg_stream.py` and then `python -m nightdrive --lights ssvep` and look at the button to toggle the lights (the mouse still works). No headset? `python tools/ssvep_sim_stream.py` simulates one: press Enter to "look" at the button. Details in `CLAUDE.md`.
 
-Sound effects are a mix of synthesised sounds and recorded effects. `python -m nightdrive.sfx` lets you audition them (the jump-scare
+**SSVEP demo** (no game): several buttons flickering at different frequencies, and which one you are looking at. `python -m nightdrive.ssvep_demo` with the headset stream running, or `python -m nightdrive.ssvep_demo --source sim` to try it without one (hover the mouse over a button to "look" at it).
+The close-your-eyes ghost: `python -m nightdrive --eyes keyboard` (hold `Space` for closed eyes, default; `Space` does nothing else while driving) or `--eyes bci` (headset, see `CLAUDE.md`).
+Debug while driving: `G` ghost now, `E` random event, `1`-`7` a specific event, `Tab` show/hide the eye-gaze marker, `M` monster (`H` / `I` hitchhikers, only when enabled).
+
+All sound effects are recordings (nothing is synthesised). `python -m nightdrive.sfx` lets you audition them (the jump-scare
 sounds are loud: lower your volume first, and tune `SFX_VOLUME` in `nightdrive/settings.py`).
 
 ## Credits
 
-Sound effects: *Horror SFX Free* by YourPalRob, *Survival Effects [Free]* by Darkworld Audio, and the
-monster/beast/abyssal packs by Riria/Ririsaurus.
+Sound effects: *Horror SFX Free* by YourPalRob, *Survival Effects [Free]* by Darkworld Audio, the
+monster/beast/abyssal packs by Riria/Ririsaurus, and the *FilmCow Royalty Free SFX Library* by Jason Steele.
 
 Music: *Lonely Nightmare* soundtrack pack by Crow Shade, licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Music by Crow Shade.

@@ -13,6 +13,7 @@ from .gaze.calibration import GazeCalibration
 from .gaze.mouse_source import MouseGazeSource
 from .gaze.tracker import GazeTracker
 from .gaze.webcam_source import WebcamGazeSource, detect_cameras, parse_camera
+from .light_switch import make_light_switch
 from .scenes import MenuScene
 from .sfx import Sfx
 from .world import World
@@ -28,6 +29,8 @@ class App:
         gaze="off",
         camera=0,
         gaze_model="auto",
+        lights="click",
+        ssvep_log=True,
     ):
         pygame.init()
         pygame.display.set_caption("Night Drive")
@@ -39,6 +42,9 @@ class App:
         self.clock = pygame.time.Clock()
         self.running = True
         self.seed = seed
+        self.roadside_hints = (
+            set()
+        )  # which roadside tutorials were already shown this session
         self.font_title = pygame.font.Font(None, 40)
         self.font = pygame.font.Font(None, 20)
         self.font_big = pygame.font.Font(None, 28)
@@ -50,6 +56,10 @@ class App:
             eyes, log=eyes_log
         )  # "are the eyes closed?" for the ghost scare
         self.eyes.start()
+        self.light_switch = make_light_switch(
+            lights, self, log=ssvep_log
+        )  # how the headlight button is operated
+        self.light_switch.start()
         self.gaze_mode = (
             gaze if gaze != "off" else "webcam"
         )  # source used when toggled on
@@ -117,6 +127,12 @@ class App:
         x, y, w, h = self._canvas_on_screen()
         return GazePoint((p.x * dw - x) / w, (p.y * dh - y) / h, p.quality, p.t)
 
+    def window_to_canvas(self, pos):
+        """A window pixel as game-canvas coordinates, or None outside the letterboxed canvas."""
+        scale, ox, oy = self._view()
+        x, y = (pos[0] - ox) / scale, (pos[1] - oy) / scale
+        return (x, y) if 0 <= x < S.W and 0 <= y < S.H else None
+
     def set_fullscreen(self, flag):
         if flag != self.fullscreen:
             self.toggle_fullscreen()
@@ -150,9 +166,6 @@ class App:
                     self.quit()
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
                     self.toggle_fullscreen()
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_F10:
-                    self.music.toggle_mute()
-                    self.sfx.toggle_mute()
                 else:
                     self.scene.handle_event(event)
             self.eyes.update()  # keeps calibration + live alpha log running in every scene
@@ -169,6 +182,7 @@ class App:
                 self.scene.draw(self.canvas)
                 self.present()
         self.eyes.stop()
+        self.light_switch.stop()
         pygame.quit()
 
 
@@ -206,6 +220,17 @@ def main():
         action="store_true",
         help="don't print live alpha values to the console",
     )
+    parser.add_argument(
+        "--lights",
+        choices=("click", "ssvep"),
+        default="click",
+        help="how the headlight button is operated: click it, or look at it (SSVEP from the headset; the mouse still works)",
+    )
+    parser.add_argument(
+        "--no-ssvep-log",
+        action="store_true",
+        help="don't print the live SSVEP scores to the console",
+    )
     args = parser.parse_args()
     App(
         args.seed,
@@ -214,4 +239,6 @@ def main():
         gaze=args.gaze,
         camera=args.gaze_camera,
         gaze_model=args.gaze_model,
+        lights=args.lights,
+        ssvep_log=not args.no_ssvep_log,
     ).run()

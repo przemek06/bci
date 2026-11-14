@@ -17,13 +17,12 @@ def test_playlist_files_exist():
         assert 0 < gain <= 1
 
 
-def test_target_volume_ducks_and_mutes():
+def test_target_volume_ducks():
     m = Music(enabled=False)
     assert m.target == S.MUSIC_VOLUME
     m.duck = True
     assert m.target == S.MUSIC_VOLUME * S.MUSIC_DUCK
-    m.toggle_mute()
-    assert m.target == 0.0
+    assert not hasattr(m, "toggle_mute")  # there is no player-facing mute any more
 
 
 def test_disabled_music_is_a_silent_noop():

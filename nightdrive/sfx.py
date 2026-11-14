@@ -275,12 +275,29 @@ def engine(sr, rng):
     return _unit(x) * 0.5
 
 
+def siren(sr, rng):
+    """Two-second police wail, a whole number of sweeps so it loops."""
+    t = _time(2.0, sr)
+    freq = 950 + 300 * np.sin(TAU * 1.0 * t - np.pi / 2)
+    return _unit(np.tanh(2 * np.sin(_phase(freq, sr)))) * 0.6
+
+
+def scare_cop(sr, rng):
+    """Whistle blast and a bang on the window."""
+    t = _time(1.2, sr)
+    whistle = np.sin(_phase(2900 + 150 * np.sin(TAU * 38 * t), sr)) * np.exp(-t * 1.5)
+    bang = _unit(_band(rng.standard_normal(len(t)), 80, 3000, sr)) * np.exp(-t * 14)
+    return _fade(_unit(0.7 * whistle + bang), sr, 0.002, 0.2)
+
+
 # name -> (builder, relative volume)
 SOUNDS = {
     "scare_truck": (scare_truck, 1.0),
     "scare_chicken": (scare_chicken, 0.9),
     "scare_scooter": (scare_scooter, 0.9),
     "scare_trump": (scare_trump, 0.9),
+    "scare_cop": (scare_cop, 1.0),
+    "siren": (siren, 0.35),
     "alert": (alert, 0.3),
     "riser": (riser, 0.4),
     "saved": (saved, 0.5),

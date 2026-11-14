@@ -3,6 +3,7 @@ import random
 import pygame
 
 from . import settings as S
+from .cop import CopChallenge
 from .events import AFTERMATH, CATALOGUE, DEAD, IMPACT, QTE, EventDirector
 from .gaze.tracker import GazeMonitor
 from .ghost import GhostChallenge
@@ -143,6 +144,13 @@ class DriveScene:
         self.auto_timer = self.rng.uniform(*S.AUTO_EVENT_RANGE)
         self.elapsed = 0.0
         self.gaze_monitor = GazeMonitor()
+        self.cop = CopChallenge(app, world)
+        self.cop_rng = random.Random(None if app.seed is None else app.seed + 2)
+        self.cop_episode = (
+            False  # this lapse of attention escalates to a cop, not a monster
+        )
+        self._was_away = False
+        self.sim_away = False  # C key: pretend to look away (no eye tracker needed)
         self._prev_state = self.director.state
         self._was_flickering = False
         self._ghost_was_active = False
@@ -162,6 +170,7 @@ class DriveScene:
             self.director.reset()
             self.app.sfx.stop("riser")
             self.ghost.reset()
+            self.cop.reset()
             self.app.set_scene(MenuScene(self.app, self.world))
         elif event.key == pygame.K_SPACE:
             # In keyboard mode a ghost challenge means "hold SPACE": that must not flip the lights.
@@ -180,6 +189,8 @@ class DriveScene:
                 self.director.press(letter)
             elif letter == "E" and not self.director.active and not self.ghost.active:
                 self.on_distracted()  # debug: trigger an event now
+            elif letter == "C":
+                self.sim_away = not self.sim_away  # debug: toggle looking away
             elif letter == "G":
                 self.ghost.trigger(busy=self.director.active)  # debug: ghost now
 
@@ -241,13 +252,43 @@ class DriveScene:
             )
             self.ghost.reset()
             return
+        if self.cop.dead:
+            self.app.set_scene(
+                GameOverScene(
+                    self.app,
+                    self.world,
+                    self.cop.death_event,
+                    self.elapsed,
+                    self.director.saved_count + self.ghost.passed_count,
+                )
+            )
+            self.cop.reset()
+            return
         gaze = self.app.gaze
+        point = self.app.gaze_canvas_point() if gaze and gaze.ready else None
+        tracked = point is not None and point.quality >= S.GAZE_MIN_QUALITY
+        gaze_away = tracked and GazeMonitor.is_away(point)
+        busy = self.director.active or self.ghost.active
+        away = gaze_away or self.sim_away
+        if (
+            away and not self._was_away and self.cop.away == 0.0
+        ):  # a new lapse: cop or monster?
+            self.cop_episode = self.sim_away or self.cop_rng.random() < S.COP_CHANCE
+        elif not away and self.cop.away == 0.0:
+            self.cop_episode = False
+        self._was_away = away
+        if busy:  # monsters have the player's full attention already
+            self.cop.reset()
+        else:
+            # untrackable eyes freeze the cop timers instead of resetting them
+            lost = bool(gaze and gaze.ready) and not tracked and not self.sim_away
+            self.cop.update(dt, None if lost else away and self.cop_episode)
         if gaze and gaze.ready:
             # gaze replaces the placeholder timer: looking away from the road triggers events
             if (
-                self.gaze_monitor.update(dt, self.app.gaze_canvas_point())
-                and not self.director.active
-                and not self.ghost.active
+                self.gaze_monitor.update(dt, point)
+                and not busy
+                and not self.cop_episode
             ):
                 self.on_distracted()
         elif not self.director.active and not self.ghost.active:
@@ -265,11 +306,12 @@ class DriveScene:
             draw_text(surf, d.message, self.app.font_big, GOOD, center=(S.W // 2, 40))
         self._draw_headlight_hint(surf)
         self.ghost.draw(surf)
+        self.cop.draw(surf)
         self._draw_gaze(surf)
         if self.elapsed < 5:
             alpha = 255 if self.elapsed < 3.5 else int(255 * (5 - self.elapsed) / 1.5)
             hint = self.app.font_small.render(
-                "SPACE - LIGHTS    ESC - MENU", False, DIM
+                "SPACE - LIGHTS    ESC - MENU    C - LOOK AWAY", False, DIM
             )
             hint.set_alpha(alpha)
             surf.blit(hint, hint.get_rect(topright=(S.W - 6, 10)))
@@ -300,21 +342,10 @@ class DriveScene:
             return
         p = self.app.gaze_canvas_point()
         if p is None:
-            draw_text(
-                surf,
-                "EYES: "
-                + (
-                    "NOT CALIBRATED" if not gaze.ready else gaze.source.status().upper()
-                ),
-                self.app.font_small,
-                DIM,
-                topleft=(6, 10),
-            )
             return
         color = ACCENT if GazeMonitor.is_away(p) else GOOD
         pos = (int(p.x * S.W), int(p.y * S.H))
-        pygame.draw.circle(surf, color, pos, 4, 1)
-        pygame.draw.circle(surf, color, pos, 1)
+        surf.set_at(pos, color)
 
     def _draw_prompt(self, surf, qte):
         cx, top = S.W // 2, 16

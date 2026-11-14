@@ -289,3 +289,32 @@ def test_geometry_recovers_cameras_and_generalises():
     xt, yt = _synthetic_two_cam(200, seed=5)
     err = np.abs(cal.predict(xt) - yt).mean()
     assert err < 0.05
+
+
+def test_cop_escalation_and_recovery():
+    from nightdrive import settings as S
+    from nightdrive.cop import COP, IDLE, WARNING, CopEncounter
+
+    cop = CopEncounter()
+    cop.update(S.COP_WARN_TIME + 0.1, True)
+    assert cop.state == WARNING
+    cop.update(S.COP_APPEAR_TIME - S.COP_WARN_TIME, True)
+    assert cop.state == COP
+    cop.update(S.COP_REGAIN_TIME + 0.1, False)  # looked back: all calm again
+    assert cop.state == IDLE and cop.away == 0.0
+    cop.update(S.COP_BUST_TIME + 0.1, True)
+    assert cop.dead
+
+
+def test_calibration_skips_a_target_that_never_tracks():
+    from nightdrive import settings as S
+    from nightdrive.gaze.session import CalibrationSession
+
+    s = CalibrationSession(targets=[(0.1, 0.1), (0.9, 0.9)])
+    for _ in range(
+        int(S.CALIB_MAX_TRIES * (S.CALIB_SETTLE + S.CALIB_SAMPLE) * 20) + 20
+    ):
+        s.update(0.05, None)  # eyes never found
+        if s.index:
+            break
+    assert s.index == 1

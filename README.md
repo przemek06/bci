@@ -45,7 +45,7 @@ python -m nightdrive --gaze webcam --gaze-camera http://PHONE_IP:PORT/video   # 
 python -m nightdrive --gaze mouse                  # no hardware: the mouse stands in for the gaze
 ```
 
-Or toggle **EYE TRACKING** in the menu, then run **CALIBRATE EYES** (15 dots, ~30 s). The calibration is saved to `data/gaze_calibration.json`. The first run downloads the face model (~4 MB) to `data/models/`. macOS will ask for camera permission for your terminal/IDE. In game, `G` shows/hides the gaze dot.
+Or toggle **EYE TRACKING** in the menu, then run **CALIBRATE EYES** (9 dots with the head still, then the same 9 while moving it, ~35 s). The calibration is saved to `data/gaze_calibration.json`. The first run downloads the face model (~4 MB) to `data/models/`. macOS will ask for camera permission for your terminal/IDE. In game, `G` shows/hides the gaze dot.
 
 **Better vertical tracking with several cameras:** list more than one camera and their features are combined; put a phone below (or above) the screen, since a different viewing angle sees up/down eye movement much better. Every camera must see your face, and you must recalibrate whenever the camera set changes.
 

@@ -143,6 +143,8 @@ def test_synthesised_sounds_left():
         "scare_chicken",
         "scare_scooter",
         "scare_trump",
+        "scare_cop",
+        "siren",
         "alert",
         "riser",
         "saved",

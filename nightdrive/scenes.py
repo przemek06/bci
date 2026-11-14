@@ -183,11 +183,19 @@ class DriveScene:
         """Called when the player's attention drops. For now fired by a timer or the E key."""
         if self.ghost.active or self.roadside.active:  # one scare at a time
             return
+        if not self.app.qte_keys and not self.focus.ready:
+            return  # focus-only mode: wait until focus can pass the event (never an unwinnable one)
         # longer window if focus can pass the event (see focus_pass.py)
         self.director.qte_window = self.focus.qte_window(S.QTE_WINDOW)
         if self.director.trigger(event):
             self.app.sfx.play("riser")
             self.app.sfx.play_appear(self.director.event.name)
+
+    @property
+    def keys_active(self):
+        """Do letter keys pass quick-time events? Yes in the no-BCI mode, and as a fallback when
+        focus cannot be measured (signal lost mid-event), so a quick-time event is never unwinnable."""
+        return self.app.qte_keys or not self.focus.ready
 
     def _scare_running(self):
         """A QTE event, the ghost or a roadside encounter is going on: no second one starts."""
@@ -226,7 +234,10 @@ class DriveScene:
         elif pygame.K_a <= event.key <= pygame.K_z:
             letter = chr(event.key).upper()
             if self.director.state == QTE:
-                self.director.press(letter)
+                if (
+                    self.keys_active
+                ):  # in the BCI mode the keys do nothing (not even a wrong one)
+                    self.director.press(letter)
             elif letter == "E" and not self._scare_running():
                 self.on_distracted()  # debug: trigger an event now
             elif letter == "C":
@@ -373,8 +384,8 @@ class DriveScene:
         d = self.director
         self.world.draw(surf)
         if d.state == QTE:
-            self._draw_prompt(surf, d.qte)
-            self.focus.draw(surf)
+            self._draw_prompt(surf, d.qte, self.keys_active)
+            self.focus.draw(surf, keys_enabled=self.keys_active)
         elif d.message:
             draw_text(surf, d.message, self.app.font_big, GOOD, center=(S.W // 2, 40))
         self._draw_headlight_hint(surf)
@@ -440,7 +451,7 @@ class DriveScene:
                 center=(S.W // 2, S.H - 46),
             )
 
-    def _draw_prompt(self, surf, qte):
+    def _draw_prompt(self, surf, qte, show_letter=True):
         cx, top = S.W // 2, 16
         # border goes from white to red as time runs out
         r = qte.remaining
@@ -449,7 +460,10 @@ class DriveScene:
         box.midtop = (cx, top)
         pygame.draw.rect(surf, (6, 8, 20), box)
         pygame.draw.rect(surf, color, box, 2)
-        draw_text(surf, qte.letter, self.app.font_title, color, center=box.center)
+        if show_letter:
+            draw_text(surf, qte.letter, self.app.font_title, color, center=box.center)
+        else:  # BCI mode: no letter to press, just the cue (the countdown bar below stays)
+            draw_text(surf, "FOCUS", self.app.font_small, color, center=box.center)
         bar = pygame.Rect(0, 0, 64, 5)
         bar.midtop = (cx, box.bottom + 4)
         pygame.draw.rect(surf, (6, 8, 20), bar)

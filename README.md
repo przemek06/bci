@@ -1,7 +1,7 @@
 # Night Drive
 
 A calm pixel-art night drive that is (eventually) steered by your attention. Pseudo-3D, first person.
-When you lose focus something jumps onto the road and you need to hit the prompted letter fast.
+When you lose focus something jumps onto the road and you need to hit the prompted letter fast (that is the mode without a headset; with `--attention bci` the letter is replaced by focusing, see `CLAUDE.md`).
 
 ## Run
 

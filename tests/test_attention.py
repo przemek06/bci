@@ -549,3 +549,110 @@ def test_attention_off_leaves_the_quick_time_event_unchanged():
     assert drive.director.qte.window == S.QTE_WINDOW
     assert not drive.focus.ready
     pygame.quit()
+
+
+# --- the letter keys are the no-BCI mode ---------------------------------------------------
+
+
+def key_of(letter):
+    return pygame.event.Event(
+        pygame.KEYDOWN, key=getattr(pygame, f"K_{letter.lower()}")
+    )
+
+
+def start_bci_drive(source=None, direction=1):
+    """A drive in the BCI mode: an attention source is on, so the letter keys are off."""
+    app = App(seed=4, audio=False, attention="keyboard")
+    assert app.qte_keys is False
+    clock = {"t": 0.0}
+    app.attention = source or KeyboardAttention(
+        lambda: direction, clock=lambda: clock["t"], rate_per_s=1.0
+    )
+    app.scene.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    drive = app.scene
+    drive.auto_timer = 1e9
+    drive.ghost.timer = 1e9
+
+    def run(seconds, dt=1 / 60):
+        for _ in range(round(seconds / dt)):
+            clock["t"] += dt
+            drive.update(dt)
+            drive.draw(app.canvas)
+
+    return app, drive, run
+
+
+def test_without_bci_the_letter_keys_are_the_mode():
+    app = App(seed=4, audio=False)  # no attention source
+    assert app.qte_keys is True
+    app.scene.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    drive = app.scene
+    drive.auto_timer = 1e9
+    drive.ghost.timer = 1e9
+    drive.update(1 / 60)
+    drive.on_distracted()  # an event starts without any focus measurement
+    assert drive.director.state == QTE and drive.keys_active
+    drive.handle_event(key_of(drive.director.qte.letter))
+    assert drive.director.qte.result == SUCCESS and drive.director.qte.via == "key"
+    pygame.quit()
+
+
+def test_in_the_bci_mode_the_letter_keys_do_nothing():
+    _app, drive, run = start_bci_drive(direction=-1)  # focus never reaches the line
+    run(0.5)
+    drive.on_distracted()
+    assert drive.director.state == QTE and not drive.keys_active
+    letter = drive.director.qte.letter
+    wrong = "A" if letter != "A" else "B"
+    drive.handle_event(key_of(wrong))  # a wrong key does not fail it...
+    drive.handle_event(key_of(letter))  # ...and the right key does not pass it
+    assert drive.director.state == QTE and drive.director.qte.result is None
+    pygame.quit()
+
+
+def test_in_the_bci_mode_focus_passes_and_no_letter_is_drawn(monkeypatch):
+    from nightdrive import scenes
+
+    drawn = []
+    real = scenes.draw_text
+    monkeypatch.setattr(
+        scenes,
+        "draw_text",
+        lambda surf, text, *a, **k: (drawn.append(text), real(surf, text, *a, **k))[1],
+    )
+    _app, drive, run = start_bci_drive(direction=1)
+    run(0.5)
+    drive.on_distracted()
+    letter = drive.director.qte.letter
+    drawn.clear()
+    run(0.1)
+    assert "FOCUS" in drawn and letter not in drawn  # the cue replaces the letter
+    run(
+        drive.focus.cfg.delay_s + drive.focus.cfg.qte_window_s,
+    )
+    assert drive.director.history[-1]["input"] == "focus"
+    pygame.quit()
+
+
+def test_in_the_bci_mode_an_event_waits_until_focus_is_ready():
+    _app, drive, run = start_bci_drive()
+    drive.on_distracted()  # nothing has been measured yet
+    assert not drive.director.active
+    run(0.3)
+    drive.on_distracted()
+    assert drive.director.active
+    pygame.quit()
+
+
+def test_if_the_signal_is_lost_mid_event_the_keys_come_back_as_a_fallback():
+    source = FakeSource(0.2)  # a low level: focus will not pass it
+    _app, drive, run = start_bci_drive(source=source)
+    run(0.5)
+    drive.on_distracted()
+    assert drive.director.state == QTE and not drive.keys_active
+    source.quality = 0.0  # the headset drops out
+    run(0.1)
+    assert drive.keys_active  # never an unwinnable event
+    drive.handle_event(key_of(drive.director.qte.letter))
+    assert drive.director.qte.result == SUCCESS and drive.director.qte.via == "key"
+    pygame.quit()

@@ -67,11 +67,14 @@ def test_closed_eyes_pass_after_hold():
 def test_short_dip_is_forgiven_long_dip_resets():
     cfg = EyesClosedConfig(smooth_s=0.2)  # one sample per window: no smoothing
     det = calibrated(cfg)
-    _, t = feed(det, 0, 2.0, 0.8)
+    hold = cfg.hold_s  # whatever it is tuned to
+    _, t = feed(det, 0, hold * 0.6, 0.8)
     state, t = feed(det, t, DT, 0.3)  # 0.25 s dip < grace 0.5 s
     assert state.closed
-    state, t = feed(det, t, 1.0, 0.8)
-    assert state.closed and state.passed  # the dip did not restart the 3 s timer
+    state, t = feed(det, t, hold * 0.6, 0.8)
+    assert (
+        state.closed and state.passed
+    )  # the dip did not restart the timer (0.6 + 0.6 > 1 x hold)
     state, t = feed(det, t, 1.0, 0.3)  # 1 s dip > grace
     assert not state.closed and state.held_s == 0.0
 

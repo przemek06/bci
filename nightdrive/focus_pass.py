@@ -135,7 +135,8 @@ class FocusPass:
                 self.meter.reset()
                 self._announced = False
                 self._emit(
-                    f"QTE started: press the key OR focus (counting starts in {self.cfg.delay_s:g}s; "
+                    f"QTE started: {'press the key OR focus' if getattr(self.app, 'qte_keys', True) else 'focus'} "
+                    f"(counting starts in {self.cfg.delay_s:g}s; "
                     f"then average level >= {self.cfg.pass_level:g} for {self.cfg.hold_s:g}s in total)"
                     if self.ready
                     else "QTE started: letters only (attention not ready)"
@@ -181,21 +182,24 @@ class FocusPass:
         surf.blit(font.render(text, False, SHADOW), rect.move(1, 1))
         surf.blit(img, rect)
 
-    def draw(self, surf) -> None:
+    def draw(self, surf, keys_enabled: bool = True) -> None:
         """Small focus meter under the quick-time prompt (call while a QTE is running)."""
         if not self.ready:
             return
         font = self.app.font_small
+        hint = (
+            "OR FOCUS" if keys_enabled else "FOCUS"
+        )  # "OR" only while the keys also work
         if (
             not self.meter.counting
         ):  # settling: just the hint, no numbers and no bar yet
-            self._label(surf, font, "OR FOCUS")
+            self._label(surf, font, hint)
             return
         avg = self.meter.avg_level
         level = (
             self.att.level if avg is None else avg
         )  # show what the rule actually compares
-        self._label(surf, font, f"OR FOCUS  {level:.1f} / {self.cfg.pass_level:.1f}")
+        self._label(surf, font, f"{hint}  {level:.1f} / {self.cfg.pass_level:.1f}")
         bar = pygame.Rect(0, 0, 64, 5)
         bar.midtop = (S.W // 2, 86)
         pygame.draw.rect(surf, (6, 8, 20), bar)

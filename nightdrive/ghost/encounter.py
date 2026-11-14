@@ -17,6 +17,8 @@ class GhostConfig:
     first_delay: tuple[float, float] = (20.0, 35.0)  # seconds until the first ghost
     interval: tuple[float, float] = (35.0, 60.0)  # seconds between ghosts
     relax_s: float = 3.0  # time to calm down first: nothing counts and no bars show yet
+    prompt_seconds: float = 5.0  # what the screen text tells the player: "... FOR 5 SECONDS" (on purpose NOT the
+    # real requirement, which is EyesClosedConfig.hold_s)
     deadline_s: float = 10.0  # time allowed (after the relax phase) to keep the eyes closed for the full hold
     relief_s: float = 2.2  # how long the "ghost passes" message stays
     signal_grace_s: float = (

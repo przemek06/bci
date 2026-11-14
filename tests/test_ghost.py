@@ -76,6 +76,18 @@ def test_the_ghost_can_be_passed_once_the_relax_time_is_over():
     assert enc.state == PASSED and enc.passed_count == 1
 
 
+def test_the_prompt_tells_the_player_prompt_seconds_not_the_real_hold():
+    from nightdrive.attention.eyes_closed import EyesClosedConfig
+    from nightdrive.ghost.visuals import instruction_text
+
+    cfg = GhostConfig()
+    text = instruction_text("KEEP THEM SHUT", cfg.prompt_seconds)
+    assert text == f"KEEP THEM SHUT FOR {cfg.prompt_seconds:g} SECONDS"
+    assert (
+        cfg.prompt_seconds != EyesClosedConfig().hold_s
+    )  # the text and the check differ on purpose
+
+
 def test_default_relax_time_is_three_seconds():
     assert GhostConfig().relax_s == 3.0
 

@@ -182,7 +182,9 @@ class RoadsideDirector:
                 return
             self._next_monster -= dt
             self._next_hitch -= dt
-            if self._next_monster <= 0:
+            if (
+                S.HEADLIGHTS_ENABLED and self._next_monster <= 0
+            ):  # the monster needs the lights
                 self.start_monster()
             elif S.HITCHHIKERS_ENABLED and self._next_hitch <= 0:
                 self.start_hitchhiker()

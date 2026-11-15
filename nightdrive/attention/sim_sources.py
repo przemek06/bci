@@ -15,6 +15,8 @@ class NullAttention:
     log = None
     status_text = ""
     debug_text = ""
+    needs_calibration = False
+    calibrated = False  # there is no signal at all
 
     def start(self) -> None:
         pass
@@ -34,6 +36,8 @@ class RandomAttention:
     mode = "random"
     log = None
     status_text = ""
+    needs_calibration = False
+    calibrated = True
 
     def __init__(
         self,
@@ -75,6 +79,8 @@ class KeyboardAttention:
     mode = "keyboard"
     log = None
     status_text = ""
+    needs_calibration = False
+    calibrated = True
 
     def __init__(
         self,

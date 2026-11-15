@@ -1,7 +1,7 @@
 # Night Drive
 
 A calm pixel-art night drive that is (eventually) steered by your attention. Pseudo-3D, first person.
-When you lose focus something jumps onto the road and you need to hit the prompted letter fast.
+When you lose focus something jumps onto the road and you need to hit the prompted letter fast (that is the mode without a headset; with `--attention bci` the letter is replaced by focusing, see `CLAUDE.md`).
 
 ## Run
 
@@ -13,8 +13,8 @@ python -m nightdrive
 
 Keys: Enter/arrows in the menu, `Esc` back, `F11` fullscreen (not shown in the menu).
 The score is on the dashboard (it rises with time; other sources can add to it later).
-Something may stand by the road. If it is a **monster**, turn your headlights off before it sees you. (Hitchhikers exist in the code but are switched off for now: `HITCHHIKERS_ENABLED` in `settings.py`.)
-While driving: the **headlights are a flickering button on the dashboard: click it** to switch them off or on (they fail now and then: switch them off and on again). It flickers on purpose: it is the stimulus for the SSVEP brain-computer interface (`nightdrive/light_switch.py`). With the headset, run `python tools/gpype_eeg_stream.py` and then `python -m nightdrive --lights ssvep` and look at the button to toggle the lights (the mouse still works). The detection is filter-bank CCA (adapted from the open-source SSVEP literature and toolbox, see `CLAUDE.md`); `--ssvep-method cca|psd` picks another. No headset? `python tools/ssvep_sim_stream.py` simulates one: press Enter to "look" at the button. Details in `CLAUDE.md`.
+(The headlight features and the monster that depends on them are **switched off for now**: `HEADLIGHTS_ENABLED` in `settings.py`.) Something may stand by the road. If it is a **monster**, turn your headlights off before it sees you. (Hitchhikers exist in the code but are switched off for now: `HITCHHIKERS_ENABLED` in `settings.py`.)
+While driving (with the headlight features switched on): the **headlights are a flickering button on the dashboard: click it** to switch them off or on (they fail now and then: switch them off and on again). It flickers on purpose: it is the stimulus for the SSVEP brain-computer interface (`nightdrive/light_switch.py`). With the headset, run `python tools/gpype_eeg_stream.py` and then `python -m nightdrive --lights ssvep` and look at the button to toggle the lights (the mouse still works). No headset? `python tools/ssvep_sim_stream.py` simulates one: press Enter to "look" at the button. Details in `CLAUDE.md`.
 
 **SSVEP demo** (no game): several buttons flickering at different frequencies, and which one you are looking at. `python -m nightdrive.ssvep_demo` with the headset stream running, or `python -m nightdrive.ssvep_demo --source sim` to try it without one (hover the mouse over a button to "look" at it).
 The close-your-eyes ghost: `python -m nightdrive --eyes keyboard` (hold `Space` for closed eyes, default; `Space` does nothing else while driving) or `--eyes bci` (headset, see `CLAUDE.md`).

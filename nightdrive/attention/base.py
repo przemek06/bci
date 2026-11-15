@@ -17,6 +17,12 @@ class AttentionSource(Protocol):
     log: object  # callable(str) or None: where the live monitor lines go
     status_text: str  # short message for the HUD / console ("" when fine)
     debug_text: str  # one-line description of the current internals, for the log
+    needs_calibration: (
+        bool  # True if the player must sit through a baseline recording first
+    )
+    calibrated: (
+        bool  # True once there is a baseline (sources that need none are always True)
+    )
 
     def start(self) -> None: ...
 

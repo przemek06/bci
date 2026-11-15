@@ -78,6 +78,11 @@ def make_ghost_scare() -> pygame.Surface:
     return s
 
 
+def instruction_text(hint: str, seconds: float) -> str:
+    """The line under the title. `seconds` is the GhostConfig.prompt_seconds shown to the player."""
+    return f"{hint} FOR {seconds:g} SECONDS"
+
+
 class GhostVisuals:
     def __init__(self, app) -> None:
         self.app = app
@@ -145,9 +150,15 @@ class GhostVisuals:
 
     def _draw_prompt(self, surf, enc: GhostEncounter, hold_s: float, hint: str) -> None:
         flash = int(self.t * 6) % 2 == 0
-        self.app_text(surf, "CLOSE YOUR EYES!", BAD if flash else TEXT, 22)
+        self.app_text(
+            surf, "RELAX AND CLOSE YOUR EYES", BAD if flash else TEXT, 22, self.app.font
+        )
         small = self.app.font_small
-        self.app_text(surf, f"{hint} FOR {hold_s:g} SECONDS", DIM, 38, small)
+        self.app_text(
+            surf, instruction_text(hint, enc.cfg.prompt_seconds), DIM, 38, small
+        )
+        if enc.relaxing:
+            return  # no bars while the player calms down; they appear when counting starts
         self._bar(surf, 52, enc.progress, GOOD)
         self._bar(surf, 60, enc.time_left / enc.cfg.deadline_s, BAD, height=3)
 

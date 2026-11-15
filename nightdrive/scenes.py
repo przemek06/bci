@@ -27,6 +27,17 @@ def draw_text(surf, text, font, color, center=None, topleft=None, shadow=(5, 6, 
     surf.blit(img, rect)
 
 
+def start_drive(app, world):
+    """The scene that begins a game: the attention calibration first, if the headset still needs a
+    baseline (see attention_calibration.py), otherwise straight into the drive."""
+    source = app.attention
+    if getattr(source, "needs_calibration", False) and not source.calibrated:
+        from .attention_calibration import AttentionCalibrationScene
+
+        return AttentionCalibrationScene(app, world)
+    return DriveScene(app, world)
+
+
 class MenuScene:
     def __init__(self, app, world):
         self.app = app
@@ -72,7 +83,7 @@ class MenuScene:
     def _choose(self):
         choice = self.options[self.selected]
         if choice == "START":
-            self.app.set_scene(DriveScene(self.app, self.world))
+            self.app.set_scene(start_drive(self.app, self.world))
         elif choice.startswith("EYE TRACKING"):
             if self.app.gaze:
                 self.app.disable_gaze()
@@ -145,11 +156,11 @@ class DriveScene:
         self.world.cruise = S.CRUISE_SPEED
         app.music.start()
         world.headlights.reset()
-        world.headlights.flicker_enabled = True
+        world.headlights.flicker_enabled = S.HEADLIGHTS_ENABLED
         world.score.reset()
         world.actors.clear()  # nobody left standing by the road from a previous run
         world.button_flicker = (
-            True  # the headlight button flickers: the future SSVEP stimulus
+            S.HEADLIGHTS_ENABLED  # the headlight button flickers: the future SSVEP stimulus
         )
         world.button_hz = app.light_switch.stimulus_hz
         self.rng = random.Random(app.seed)
@@ -183,22 +194,32 @@ class DriveScene:
         """Called when the player's attention drops. For now fired by a timer or the E key."""
         if self.ghost.active or self.roadside.active:  # one scare at a time
             return
+        if not self.app.qte_keys and not self.focus.ready:
+            return  # focus-only mode: wait until focus can pass the event (never an unwinnable one)
         # longer window if focus can pass the event (see focus_pass.py)
         self.director.qte_window = self.focus.qte_window(S.QTE_WINDOW)
         if self.director.trigger(event):
             self.app.sfx.play("riser")
             self.app.sfx.play_appear(self.director.event.name)
 
+    @property
+    def keys_active(self):
+        """Do letter keys pass quick-time events? Yes in the no-BCI mode, and as a fallback when
+        focus cannot be measured (signal lost mid-event), so a quick-time event is never unwinnable."""
+        return self.app.qte_keys or not self.focus.ready
+
     def _scare_running(self):
         """A QTE event, the ghost or a roadside encounter is going on: no second one starts."""
         return self.director.active or self.ghost.active or self.roadside.active
 
     def toggle_lights(self):
+        if not S.HEADLIGHTS_ENABLED:  # headlight features are switched off for now
+            return
         self.world.headlights.toggle()
         self.app.sfx.play_lights(self.world.headlights.on)
 
     def handle_event(self, event):
-        if self.app.light_switch.handle_event(
+        if S.HEADLIGHTS_ENABLED and self.app.light_switch.handle_event(
             event
         ):  # a click on the dashboard button, or later a BCI
             self.toggle_lights()
@@ -224,14 +245,18 @@ class DriveScene:
         elif pygame.K_a <= event.key <= pygame.K_z:
             letter = chr(event.key).upper()
             if self.director.state == QTE:
-                self.director.press(letter)
+                if (
+                    self.keys_active
+                ):  # in the BCI mode the keys do nothing (not even a wrong one)
+                    self.director.press(letter)
             elif letter == "E" and not self._scare_running():
                 self.on_distracted()  # debug: trigger an event now
             elif letter == "C":
                 self.sim_away = not self.sim_away  # debug: toggle looking away
             elif letter in "MHI" and not self._scare_running():
-                if letter == "M":  # debug: a monster by the road
-                    self.roadside.start_monster()
+                if letter == "M":  # debug: a monster by the road (needs the headlights)
+                    if S.HEADLIGHTS_ENABLED:
+                        self.roadside.start_monster()
                 elif (
                     S.HITCHHIKERS_ENABLED
                 ):  # debug: H = a hitchhiker (maybe), I = an impostor
@@ -249,9 +274,9 @@ class DriveScene:
             self.director.pass_by_focus()
         self.world.update(dt)
         self.world.score.update(dt)
-        if self.app.light_switch.update(dt):
+        if S.HEADLIGHTS_ENABLED and self.app.light_switch.update(dt):
             self.toggle_lights()
-        self.world.button_hover = self.app.light_switch.hover
+        self.world.button_hover = S.HEADLIGHTS_ENABLED and self.app.light_switch.hover
         self.director.update(dt)
         flickering = self.world.headlights.flickering
         if flickering and not self._was_flickering:
@@ -370,8 +395,8 @@ class DriveScene:
         d = self.director
         self.world.draw(surf)
         if d.state == QTE:
-            self._draw_prompt(surf, d.qte)
-            self.focus.draw(surf)
+            self._draw_prompt(surf, d.qte, self.keys_active)
+            self.focus.draw(surf, keys_enabled=self.keys_active)
         elif d.message:
             draw_text(surf, d.message, self.app.font_big, GOOD, center=(S.W // 2, 40))
         self._draw_headlight_hint(surf)
@@ -386,6 +411,8 @@ class DriveScene:
             surf.blit(hint, hint.get_rect(topright=(S.W - 6, 10)))
 
     def _draw_light_switch_status(self, surf):
+        if not S.HEADLIGHTS_ENABLED:
+            return
         text = (
             self.app.light_switch.status_text
         )  # e.g. "SSVEP: CALIBRATING 40%  LOOK AT THE ROAD"
@@ -414,6 +441,8 @@ class DriveScene:
             )
 
     def _draw_headlight_hint(self, surf):
+        if not S.HEADLIGHTS_ENABLED:
+            return
         lights = self.world.headlights
         if lights.flickering and lights.on:
             if int(self.elapsed * 3) % 2 == 0:
@@ -433,7 +462,7 @@ class DriveScene:
                 center=(S.W // 2, S.H - 46),
             )
 
-    def _draw_prompt(self, surf, qte):
+    def _draw_prompt(self, surf, qte, show_letter=True):
         cx, top = S.W // 2, 16
         # border goes from white to red as time runs out
         r = qte.remaining
@@ -442,7 +471,10 @@ class DriveScene:
         box.midtop = (cx, top)
         pygame.draw.rect(surf, (6, 8, 20), box)
         pygame.draw.rect(surf, color, box, 2)
-        draw_text(surf, qte.letter, self.app.font_title, color, center=box.center)
+        if show_letter:
+            draw_text(surf, qte.letter, self.app.font_title, color, center=box.center)
+        else:  # BCI mode: no letter to press, just the cue (the countdown bar below stays)
+            draw_text(surf, "FOCUS", self.app.font_small, color, center=box.center)
         bar = pygame.Rect(0, 0, 64, 5)
         bar.midtop = (cx, box.bottom + 4)
         pygame.draw.rect(surf, (6, 8, 20), bar)
@@ -477,7 +509,7 @@ class GameOverScene:
         if event.key in (pygame.K_RETURN, pygame.K_SPACE):
             self.app.sfx.stop_all()
             self.world.speed = 0.0
-            self.app.set_scene(DriveScene(self.app, self.world))
+            self.app.set_scene(start_drive(self.app, self.world))
         elif event.key == pygame.K_ESCAPE:
             self.app.sfx.stop_all()
             self.app.set_scene(MenuScene(self.app, self.world))

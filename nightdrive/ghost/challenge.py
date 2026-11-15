@@ -64,7 +64,8 @@ class GhostChallenge:
         self.encounter.start()
         self.visuals.start()
         self._log(
-            f"GHOST appeared: keep eyes closed {self.eyes.detector.cfg.hold_s:g}s "
+            f"GHOST appeared: relax and close your eyes (counting starts in "
+            f"{self.cfg.relax_s:g}s), then keep them closed {self.eyes.detector.cfg.hold_s:g}s "
             f"within {self.cfg.deadline_s:g}s"
         )
         return True
@@ -80,6 +81,7 @@ class GhostChallenge:
         state = self.eyes_state = self.eyes.update()
         enc = self.encounter
         was_active = enc.state == ACTIVE
+        was_relaxing = enc.relaxing
         if enc.state == ACTIVE:
             hold_s = self.eyes.detector.cfg.hold_s
             enc.update(
@@ -92,6 +94,9 @@ class GhostChallenge:
             if self.timer <= 0:
                 self.timer = self.rng.uniform(*self.cfg.interval)
                 self.trigger(busy)
+        if was_relaxing and not enc.relaxing and enc.state == ACTIVE:
+            self.eyes.begin_challenge()  # counting starts now, from zero
+            self._log("relax time is over: counting the closed eyes now")
         if was_active and enc.state != ACTIVE:
             outcomes = {
                 "passed": "SURVIVED: eyes held closed long enough",

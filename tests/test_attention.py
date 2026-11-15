@@ -172,12 +172,14 @@ def run_meter(meter, seconds, level, dt=0.05, **kw):
 CFG = FocusPassConfig()
 PASS = CFG.pass_level
 HOLD = CFG.hold_s
+DELAY = CFG.delay_s
+NODELAY = FocusPassConfig(delay_s=0.0)  # for tests that are not about the settle time
 HIGH = PASS + 0.5  # clearly focusing
 SLIP = PASS - 0.3  # clearly below the line
 
 
 def test_meter_passes_after_holding_a_high_level():
-    m = FocusMeter()
+    m = FocusMeter(NODELAY)
     run_meter(m, HOLD * 0.9, HIGH)
     assert not m.passed and 0.85 < m.progress < 1.0
     run_meter(m, HOLD * 0.3, HIGH)
@@ -186,15 +188,15 @@ def test_meter_passes_after_holding_a_high_level():
 
 def test_meter_does_not_pass_below_the_threshold_or_without_a_good_signal():
     m = run_meter(
-        FocusMeter(), HOLD * 3, PASS - 0.05
+        FocusMeter(NODELAY), HOLD * 3, PASS - 0.05
     )  # just under the line is not enough
     assert not m.passed and m.progress == 0.0
-    assert not run_meter(FocusMeter(), HOLD * 3, HIGH, calibrated=False).passed
-    assert not run_meter(FocusMeter(), HOLD * 3, HIGH, quality=0.1).passed
+    assert not run_meter(FocusMeter(NODELAY), HOLD * 3, HIGH, calibrated=False).passed
+    assert not run_meter(FocusMeter(NODELAY), HOLD * 3, HIGH, quality=0.1).passed
 
 
 def test_a_dip_holds_the_progress_still_and_never_resets_it():
-    m = FocusMeter()
+    m = FocusMeter(NODELAY)
     run_meter(m, HOLD * 0.5, HIGH)
     held = m.held
     run_meter(m, HOLD * 2, SLIP)  # a long bad stretch
@@ -211,7 +213,7 @@ def test_a_dip_holds_the_progress_still_and_never_resets_it():
 
 
 def test_one_bad_value_does_not_even_stall_the_progress():
-    m = FocusMeter()
+    m = FocusMeter(NODELAY)
     run_meter(m, HOLD * 0.4, HIGH)
     m.update(0.05, att(SLIP))  # a single bad frame
     held = m.held
@@ -220,7 +222,7 @@ def test_one_bad_value_does_not_even_stall_the_progress():
 
 
 def test_the_meter_compares_the_average_level():
-    m = FocusMeter()
+    m = FocusMeter(NODELAY)
     run_meter(m, CFG.avg_s, HIGH)
     assert m.avg_level == pytest.approx(HIGH)
     run_meter(m, CFG.avg_s, SLIP)  # the whole window is now the low level
@@ -230,11 +232,46 @@ def test_the_meter_compares_the_average_level():
 
 
 def test_draining_is_still_available_as_an_option():
-    m = FocusMeter(FocusPassConfig(drain=2.0))
+    m = FocusMeter(FocusPassConfig(drain=2.0, delay_s=0.0))
     run_meter(m, HOLD * 0.5, HIGH)
     held = m.held
     run_meter(m, 2.0, SLIP)
     assert m.held < held  # slips lose progress when drain > 0
+
+
+def test_nothing_counts_during_the_settle_time_and_counting_starts_from_zero():
+    m = FocusMeter()  # the default config, with the settle time
+    assert not m.counting
+    run_meter(m, DELAY * 0.9, HIGH * 3)  # clearly high, but still settling
+    assert not m.counting and not m.passed
+    assert m.progress == 0.0 and m.avg_level is None  # not even recorded
+    run_meter(m, 0.2, HIGH)  # the settle time is over
+    assert m.counting and m.held <= 0.1  # starts from zero, nothing carried over
+    run_meter(m, HOLD + CFG.avg_s, HIGH)
+    assert m.passed
+
+
+def test_the_bar_only_shows_after_the_settle_time():
+    pygame.font.init()
+    font = pygame.font.Font(None, 14)
+    f = FocusPass(SimpleNamespace(attention=FakeSource(HIGH), font_small=font))
+    f.update(0.05, qte_active=False)  # the source is ready
+    surf = pygame.Surface((S.W, S.H))
+    spot = (S.W // 2, 88)  # inside the progress bar
+
+    def drawn_bar_pixel():
+        surf.fill((0, 0, 0))
+        f.draw(surf)
+        return tuple(surf.get_at(spot))[:3]
+
+    for _ in range(round(DELAY * 0.5 / 0.05)):  # half the settle time
+        f.update(0.05, qte_active=True)
+    assert not f.meter.counting
+    assert drawn_bar_pixel() == (0, 0, 0)  # no bar yet (only the "OR FOCUS" hint)
+    for _ in range(round(DELAY / 0.05)):
+        f.update(0.05, qte_active=True)
+    assert f.meter.counting
+    assert drawn_bar_pixel() != (0, 0, 0)  # the bar is there now
 
 
 # --- focus pass glue --------------------------------------------------------------------
@@ -244,6 +281,7 @@ class FakeSource:
     mode = "fake"
     status_text = ""
     debug_text = "fake source"
+    needs_calibration = False
 
     def __init__(self, level, calibrated=True, quality=1.0):
         self.level, self.calibrated, self.quality = level, calibrated, quality
@@ -273,7 +311,9 @@ def test_event_window_is_only_longer_when_focus_can_pass():
     assert f.qte_window(1.5) == 1.5  # not calibrated
     f = make_focus(FakeSource(1.0))
     f.update(0.05, qte_active=False)
-    assert f.qte_window(1.5) == cfg.qte_window_s
+    assert (
+        f.qte_window(1.5) == cfg.delay_s + cfg.qte_window_s
+    )  # settle time + the time to focus
     f = make_focus(FakeSource(1.0, quality=0.0))
     f.update(0.05, qte_active=False)
     assert f.qte_window(1.5) == 1.5  # no fresh signal
@@ -288,7 +328,9 @@ def test_focus_only_counts_during_a_quick_time_event_and_logs():
         assert not f.update(0.05, qte_active=False)
     assert f.meter.held == 0.0
     passed = False
-    for _ in range(round((HOLD + 1.0) / 0.05)):  # the configured hold, plus a margin
+    for _ in range(
+        round((DELAY + HOLD + 1.0) / 0.05)
+    ):  # settle time, the hold, plus a margin
         passed = f.update(0.05, qte_active=True) or passed
     assert passed
     text = "\n".join(lines)
@@ -471,9 +513,13 @@ def test_high_attention_passes_a_quick_time_event_without_a_key():
     drive.on_distracted()
     assert (
         drive.director.state == QTE
-        and drive.director.qte.window == drive.focus.cfg.qte_window_s
+        and drive.director.qte.window
+        == drive.focus.cfg.delay_s + drive.focus.cfg.qte_window_s
     )
-    run(drive.focus.cfg.qte_window_s, until=lambda: drive.director.state != QTE)
+    run(
+        drive.focus.cfg.delay_s + drive.focus.cfg.qte_window_s,
+        until=lambda: drive.director.state != QTE,
+    )
     assert drive.director.state == AFTERMATH  # passed, no key pressed
     assert drive.director.history[-1]["input"] == "focus"
     assert app.scene is drive  # and the run goes on
@@ -503,4 +549,111 @@ def test_attention_off_leaves_the_quick_time_event_unchanged():
     drive.on_distracted()
     assert drive.director.qte.window == S.QTE_WINDOW
     assert not drive.focus.ready
+    pygame.quit()
+
+
+# --- the letter keys are the no-BCI mode ---------------------------------------------------
+
+
+def key_of(letter):
+    return pygame.event.Event(
+        pygame.KEYDOWN, key=getattr(pygame, f"K_{letter.lower()}")
+    )
+
+
+def start_bci_drive(source=None, direction=1):
+    """A drive in the BCI mode: an attention source is on, so the letter keys are off."""
+    app = App(seed=4, audio=False, attention="keyboard")
+    assert app.qte_keys is False
+    clock = {"t": 0.0}
+    app.attention = source or KeyboardAttention(
+        lambda: direction, clock=lambda: clock["t"], rate_per_s=1.0
+    )
+    app.scene.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    drive = app.scene
+    drive.auto_timer = 1e9
+    drive.ghost.timer = 1e9
+
+    def run(seconds, dt=1 / 60):
+        for _ in range(round(seconds / dt)):
+            clock["t"] += dt
+            drive.update(dt)
+            drive.draw(app.canvas)
+
+    return app, drive, run
+
+
+def test_without_bci_the_letter_keys_are_the_mode():
+    app = App(seed=4, audio=False)  # no attention source
+    assert app.qte_keys is True
+    app.scene.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    drive = app.scene
+    drive.auto_timer = 1e9
+    drive.ghost.timer = 1e9
+    drive.update(1 / 60)
+    drive.on_distracted()  # an event starts without any focus measurement
+    assert drive.director.state == QTE and drive.keys_active
+    drive.handle_event(key_of(drive.director.qte.letter))
+    assert drive.director.qte.result == SUCCESS and drive.director.qte.via == "key"
+    pygame.quit()
+
+
+def test_in_the_bci_mode_the_letter_keys_do_nothing():
+    _app, drive, run = start_bci_drive(direction=-1)  # focus never reaches the line
+    run(0.5)
+    drive.on_distracted()
+    assert drive.director.state == QTE and not drive.keys_active
+    letter = drive.director.qte.letter
+    wrong = "A" if letter != "A" else "B"
+    drive.handle_event(key_of(wrong))  # a wrong key does not fail it...
+    drive.handle_event(key_of(letter))  # ...and the right key does not pass it
+    assert drive.director.state == QTE and drive.director.qte.result is None
+    pygame.quit()
+
+
+def test_in_the_bci_mode_focus_passes_and_no_letter_is_drawn(monkeypatch):
+    from nightdrive import scenes
+
+    drawn = []
+    real = scenes.draw_text
+    monkeypatch.setattr(
+        scenes,
+        "draw_text",
+        lambda surf, text, *a, **k: (drawn.append(text), real(surf, text, *a, **k))[1],
+    )
+    _app, drive, run = start_bci_drive(direction=1)
+    run(0.5)
+    drive.on_distracted()
+    letter = drive.director.qte.letter
+    drawn.clear()
+    run(0.1)
+    assert "FOCUS" in drawn and letter not in drawn  # the cue replaces the letter
+    run(
+        drive.focus.cfg.delay_s + drive.focus.cfg.qte_window_s,
+    )
+    assert drive.director.history[-1]["input"] == "focus"
+    pygame.quit()
+
+
+def test_in_the_bci_mode_an_event_waits_until_focus_is_ready():
+    _app, drive, run = start_bci_drive()
+    drive.on_distracted()  # nothing has been measured yet
+    assert not drive.director.active
+    run(0.3)
+    drive.on_distracted()
+    assert drive.director.active
+    pygame.quit()
+
+
+def test_if_the_signal_is_lost_mid_event_the_keys_come_back_as_a_fallback():
+    source = FakeSource(0.2)  # a low level: focus will not pass it
+    _app, drive, run = start_bci_drive(source=source)
+    run(0.5)
+    drive.on_distracted()
+    assert drive.director.state == QTE and not drive.keys_active
+    source.quality = 0.0  # the headset drops out
+    run(0.1)
+    assert drive.keys_active  # never an unwinnable event
+    drive.handle_event(key_of(drive.director.qte.letter))
+    assert drive.director.qte.result == SUCCESS and drive.director.qte.via == "key"
     pygame.quit()

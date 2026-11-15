@@ -70,7 +70,14 @@ MUSIC_DUCK = 0.35  # fraction of the volume left during a QTE
 SFX_VOLUME = 0.7  # master effects volume, 0..1
 ENGINE_VOLUME = 0.12  # engine hum at cruise speed
 
-# Headlights (Space toggles). They flicker now and then; switch off and on again to fix them.
+# Headlight features, ALL behind this one flag: the dashboard button (click or SSVEP), switching the
+# lights, the flicker episodes (and their buzz / hint), the shorter quick-time window when the lights
+# are off, and the roadside monster (it only makes sense with switchable lights: it notices full
+# lights and loses you when they are off). False = TEMPORARILY OFF: the lights stay on and the
+# code is intact; set True to bring everything back (the tests switch it on themselves).
+HEADLIGHTS_ENABLED = False
+
+# Headlights (the dashboard button toggles). They flicker now and then; switch off and on again to fix them.
 FLICKER_RANGE = (25.0, 50.0)  # seconds of good light between flicker episodes
 LIGHT_STEPS = 16  # light levels the renderer caches fog tables for
 LIGHT_OFF_VISIBILITY = (

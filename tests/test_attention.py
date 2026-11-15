@@ -281,6 +281,7 @@ class FakeSource:
     mode = "fake"
     status_text = ""
     debug_text = "fake source"
+    needs_calibration = False
 
     def __init__(self, level, calibrated=True, quality=1.0):
         self.level, self.calibrated, self.quality = level, calibrated, quality

@@ -10,6 +10,7 @@ from .focus_index import FocusConfig, FocusEstimator
 
 class BciAttention:
     mode = "bci"
+    needs_calibration = True  # the baseline is recorded from the player's own signal
 
     def __init__(
         self,
@@ -30,6 +31,20 @@ class BciAttention:
             deque()
         )  # for the log averages
         self.log = None
+
+    @property
+    def calibrated(self) -> bool:
+        return self.estimator.calibrated
+
+    @property
+    def calibration_progress(self) -> float:
+        """0..1 while the baseline is being recorded."""
+        return self.estimator.calibration_progress(self._clock())
+
+    @property
+    def waiting_for_stream(self) -> bool:
+        """True until the headset stream has been seen (the baseline cannot start before)."""
+        return not self._started
 
     def start(self) -> None:
         self.reader.start()

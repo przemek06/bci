@@ -27,6 +27,17 @@ def draw_text(surf, text, font, color, center=None, topleft=None, shadow=(5, 6, 
     surf.blit(img, rect)
 
 
+def start_drive(app, world):
+    """The scene that begins a game: the attention calibration first, if the headset still needs a
+    baseline (see attention_calibration.py), otherwise straight into the drive."""
+    source = app.attention
+    if getattr(source, "needs_calibration", False) and not source.calibrated:
+        from .attention_calibration import AttentionCalibrationScene
+
+        return AttentionCalibrationScene(app, world)
+    return DriveScene(app, world)
+
+
 class MenuScene:
     def __init__(self, app, world):
         self.app = app
@@ -72,7 +83,7 @@ class MenuScene:
     def _choose(self):
         choice = self.options[self.selected]
         if choice == "START":
-            self.app.set_scene(DriveScene(self.app, self.world))
+            self.app.set_scene(start_drive(self.app, self.world))
         elif choice.startswith("EYE TRACKING"):
             if self.app.gaze:
                 self.app.disable_gaze()
@@ -498,7 +509,7 @@ class GameOverScene:
         if event.key in (pygame.K_RETURN, pygame.K_SPACE):
             self.app.sfx.stop_all()
             self.world.speed = 0.0
-            self.app.set_scene(DriveScene(self.app, self.world))
+            self.app.set_scene(start_drive(self.app, self.world))
         elif event.key == pygame.K_ESCAPE:
             self.app.sfx.stop_all()
             self.app.set_scene(MenuScene(self.app, self.world))

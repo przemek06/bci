@@ -35,6 +35,7 @@ class App:
         gaze_model="auto",
         lights="click",
         ssvep_log=True,
+        ssvep_method=None,
     ):
         pygame.init()
         pygame.display.set_caption("Night Drive")
@@ -73,7 +74,7 @@ class App:
             )
             lights = "click"  # no SSVEP reader / stimulus while the feature is off
         self.light_switch = make_light_switch(
-            lights, self, log=ssvep_log
+            lights, self, log=ssvep_log, method=ssvep_method
         )  # how the headlight button is operated
         self.light_switch.start()
         self.gaze_mode = (
@@ -255,6 +256,12 @@ def main():
         help="how the headlight button is operated: click it, or look at it (SSVEP from the headset; the mouse still works)",
     )
     parser.add_argument(
+        "--ssvep-method",
+        choices=("fbcca", "cca", "psd"),
+        default=None,
+        help="SSVEP detection method (default: fbcca, filter-bank CCA)",
+    )
+    parser.add_argument(
         "--no-ssvep-log",
         action="store_true",
         help="don't print the live SSVEP scores to the console",
@@ -271,4 +278,5 @@ def main():
         gaze_model=args.gaze_model,
         lights=args.lights,
         ssvep_log=not args.no_ssvep_log,
+        ssvep_method=args.ssvep_method,
     ).run()

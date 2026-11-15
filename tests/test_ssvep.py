@@ -17,7 +17,15 @@ import nightdrive.scenes as scenes_mod
 from nightdrive import art
 from nightdrive import settings as S
 from nightdrive.app import App
-from nightdrive.attention.ssvep import SsvepConfig, SsvepDetector, ssvep_score_db
+from nightdrive.attention.ssvep import (
+    SsvepConfig,
+    SsvepDetector,
+    canonical_correlations,
+    cca_rho,
+    fbcca_stat,
+    reference_signals,
+    ssvep_score_db,
+)
 from nightdrive.light_switch import SsvepLightSwitch
 from nightdrive.scenes import DriveScene
 from tools.ssvep_sim_stream import SimulatedEeg
@@ -82,7 +90,10 @@ def test_other_frequencies_and_shorter_windows_work():
 
 
 def test_degenerate_input_does_not_crash():
-    assert ssvep_score_db(np.zeros((3, 500)), FS, F) == 0.0
+    assert (
+        ssvep_score_db(np.zeros((3, 500)), FS, F) < -20.0
+    )  # no signal: far below any threshold
+    assert ssvep_score_db(np.zeros((3, 500)), FS, F, SsvepConfig(method="psd")) == 0.0
     assert isinstance(
         ssvep_score_db(np.random.default_rng(0).standard_normal(500), FS, F), float
     )  # one channel
@@ -126,7 +137,7 @@ def test_threshold_follows_the_players_baseline_within_limits():
         calibrated(baseline=-2.0, spread=3.0),
     )
     assert (
-        cfg.min_threshold_db
+        quiet.baseline + cfg.min_rise_db
         <= quiet.threshold
         < noisy.threshold
         <= cfg.max_threshold_db
@@ -670,3 +681,55 @@ def test_four_targets_are_told_apart_on_simulated_eeg_without_ever_picking_the_w
                 got.append(state.selected)
         want = None if look is None else TARGETS.index(look)
         assert all(g == want for g in got), (look, sorted(set(map(str, got))))
+
+
+# --- CCA and filter-bank CCA (adapted from the open-source SSVEP toolbox, see CLAUDE.md) --------------
+
+
+def test_reference_signals_are_sin_cos_pairs_per_harmonic():
+    refs = reference_signals(10.0, 100, 100, 2)
+    assert refs.shape == (4, 100)
+    t = np.arange(100) / 100
+    assert refs[0] == pytest.approx(np.sin(2 * np.pi * 10 * t))
+    assert refs[1] == pytest.approx(np.cos(2 * np.pi * 10 * t))
+    assert refs[2] == pytest.approx(np.sin(2 * np.pi * 20 * t))
+
+
+def test_canonical_correlations_known_cases():
+    rng = np.random.default_rng(0)
+    x = rng.standard_normal((400, 3))
+    assert canonical_correlations(x, x[:, :1] * 5 + 2)[0] == pytest.approx(
+        1.0, abs=1e-9
+    )  # a scaled and shifted copy
+    assert (
+        canonical_correlations(x, rng.standard_normal((400, 2)))[0] < 0.3
+    )  # unrelated
+    dup = np.hstack([x[:, :1], x[:, :1]])  # rank deficient: two identical columns
+    assert canonical_correlations(dup, x[:, :1])[0] == pytest.approx(1.0, abs=1e-9)
+    assert len(canonical_correlations(np.zeros((50, 2)), x[:50])) == 0
+
+
+def test_cca_finds_a_buried_tone_at_the_right_frequency_only():
+    rng = np.random.default_rng(1)
+    t = np.arange(2 * FS) / FS
+    w = 0.5 * np.sin(2 * np.pi * 13.0 * t + 0.7) + rng.standard_normal((3, len(t)))
+    assert cca_rho(w, FS, 13.0) > 0.35
+    assert cca_rho(w, FS, 17.0) < 0.2
+    assert 0.0 <= fbcca_stat(w, FS, 13.0) <= 1.0
+    assert fbcca_stat(w, FS, 13.0) > fbcca_stat(w, FS, 17.0) * 2
+
+
+@pytest.mark.parametrize("method", ["cca", "fbcca", "psd"])
+def test_every_method_scores_attending_above_not_attending(method):
+    cfg = SsvepConfig(method=method)
+    attn = [
+        ssvep_score_db(eeg(True, seed=i, strength=4.0), FS, F, cfg) for i in range(12)
+    ]
+    base = [ssvep_score_db(eeg(False, seed=40 + i), FS, F, cfg) for i in range(12)]
+    assert np.percentile(attn, 10) > np.percentile(base, 90), method
+
+
+def test_unknown_method_is_rejected_and_the_default_is_fbcca():
+    assert SsvepConfig().method == "fbcca"
+    with pytest.raises(ValueError):
+        ssvep_score_db(eeg(True), FS, F, SsvepConfig(method="magic"))

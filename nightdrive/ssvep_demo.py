@@ -427,7 +427,11 @@ def build(args):
 
         source, sim = EegReader(stream_name=args.stream), None
     model = DemoModel(
-        args.freqs, source, calibration_s=args.calibration, log=_print_flush
+        args.freqs,
+        source,
+        config=SsvepConfig(method=args.method),
+        calibration_s=args.calibration,
+        log=_print_flush,
     )
     return model, DemoView(model, wave=args.wave, sim=sim)
 
@@ -454,6 +458,12 @@ def parse_args(argv=None):
     )
     ap.add_argument(
         "--wave", choices=("sine", "square"), default="sine", help="flicker waveform"
+    )
+    ap.add_argument(
+        "--method",
+        choices=("fbcca", "cca", "psd"),
+        default=SsvepConfig().method,
+        help="detection method: filter-bank CCA, CCA, or the power-spectrum SNR",
     )
     ap.add_argument(
         "--calibration", type=float, default=10.0, help="calibration length in seconds"

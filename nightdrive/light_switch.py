@@ -255,9 +255,10 @@ def _print_flush(text):
     print(text, flush=True)
 
 
-def make_light_switch(mode, app, log=True):
+def make_light_switch(mode, app, log=True, method=None):
     if mode == "click":
         return ClickLightSwitch(app)
     if mode == "ssvep":
-        return SsvepLightSwitch(app, log=_print_flush if log else None)
+        config = SsvepConfig(method=method) if method else None  # None = the default
+        return SsvepLightSwitch(app, config=config, log=_print_flush if log else None)
     raise ValueError(f"unknown light switch {mode!r}")

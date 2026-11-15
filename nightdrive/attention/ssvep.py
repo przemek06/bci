@@ -3,14 +3,17 @@
 Looking at a light that flickers at f Hz makes the visual cortex oscillate at f Hz (and at its
 harmonics 2f, 3f...). That shows as a peak in the occipital EEG spectrum. Two parts:
 
-`ssvep_score_db`   how strong the peak is, as a signal-to-noise ratio in dB: the power at f and 2f
-                   against the power of the neighbouring frequencies. Being a ratio, it does not
-                   depend on electrode contact or amplifier gain.
+`ssvep_score_db`   how strong the response at f is, as a dB-like score, by `SsvepConfig.method`:
+                   "fbcca" (default: filter-bank canonical correlation with sin/cos references),
+                   "cca" (the plain version) or "psd" (power at f and 2f against the neighbouring
+                   frequencies). CCA follows the standard SSVEP literature and the open-source
+                   SSVEP Analysis Toolbox. All are ratios, so they do not depend on electrode
+                   contact or amplifier gain.
 `SsvepDetector`    turns a stream of those scores into a decision, once per attention:
                    1. calibrated on a baseline recorded while the flicker is visible but NOT
                       attended (the player looking at the road), which sets a threshold above the
                       player's own baseline (robust median + spread);
-                   2. smooths the last few scores;
+                   2. smooths the last few scores (median: a single spike is ignored);
                    3. fires once the smoothed score has stayed above the threshold for `hold_s`
                       (a glance is not enough, a deliberate look is);
                    4. then disarms: to fire again the player must look away (score below a lower
@@ -38,7 +41,14 @@ class SsvepConfig:
         2.0  # seconds of EEG per measurement (longer = steadier but slower)
     )
     step_s: float = 0.25  # how often a new measurement is made
+    method: str = "fbcca"  # "fbcca" (default), "cca" or "psd" (peak vs neighbouring bands), see ssvep_score_db
     harmonics: int = 2  # use f, 2f, ... up to this many
+    max_harmonic_hz: float = 38.0  # CCA references stop below this (the headset stream is band-passed to 40 Hz)
+    fb_subbands: int = 4  # FBCCA: number of band-pass sub-bands
+    fb_low_hz: float = 5.0  # FBCCA: sub-band k passes fb_low_hz * k up to fb_high_hz (set just below the lowest target)
+    fb_high_hz: float = 90.0
+    fb_a: float = 1.25  # FBCCA sub-band weight w(n) = n ** -a + b (Chen et al. 2015)
+    fb_b: float = 0.25
     signal_bw: float = (
         0.5  # Hz either side of a target counted as signal (at least one FFT bin)
     )
@@ -47,15 +57,19 @@ class SsvepConfig:
     )
     noise_span: float = 3.0  # ... and are this wide, on both sides
     # --- the decision ---
-    smooth_n: int = 3  # average this many latest scores
+    smooth_n: int = (
+        3  # median of this many latest scores (one spike, e.g. a blink, never counts)
+    )
     hold_s: float = 0.5  # the smoothed score must stay above the threshold this long
     cooldown_s: float = 2.0  # minimum time between two detections
     stale_s: float = 1.5  # no score for this long -> signal lost, hold resets
     # --- calibration ---
     calibration_s: float = 15.0  # baseline length (used by the light switch)
-    k_spread: float = 3.0  # threshold = baseline median + k * spread ...
+    k_spread: float = 2.5  # threshold = baseline median + k * spread (3.0 missed weak 6-7.5 Hz targets; 2.5 keeps false alarms near 1%) ...
     min_rise_db: float = 3.0  # ... but at least this far above it,
-    min_threshold_db: float = 3.0  # and never below this (about 2x the noise power),
+    min_threshold_db: float | None = (
+        None  # and never below this, if set (3.0 suited the "psd" measure; the CCA scores need no floor),
+    )
     max_threshold_db: float = 12.0  # nor above this, so a baseline polluted by attention cannot lock the switch
     release_frac: float = (
         0.5  # re-arm level, as a fraction of the way from the baseline to the threshold
@@ -68,9 +82,107 @@ class SsvepConfig:
     )
 
 
-def ssvep_score_db(window, fs, freq, cfg: SsvepConfig | None = None) -> float:
-    """SNR in dB at `freq` (and its harmonics) of an EEG window shaped (channels, samples)."""
+# --- CCA and filter-bank CCA ---------------------------------------------------------------------------------
+# Adapted from the standard method in the SSVEP literature and its open-source implementations (see CLAUDE.md):
+# the SSVEP Analysis Toolbox (pikipity/SSVEP-Analysis-Toolbox: `gen_ref_sin`, `canoncorr`, argmax over stimuli)
+# and Chen et al. 2015 for the filter bank (weights w(n) = n^-1.25 + 0.25, statistic sum w(n) * rho_n^2).
+
+
+def reference_signals(freq, fs, n, harmonics):
+    """Sine and cosine at `freq` and its harmonics: shape (2 * harmonics, n)."""
+    t = np.arange(n) / fs
+    rows = []
+    for h in range(1, harmonics + 1):
+        rows.append(np.sin(2 * np.pi * h * freq * t))
+        rows.append(np.cos(2 * np.pi * h * freq * t))
+    return np.array(rows)
+
+
+def canonical_correlations(x, y):
+    """Canonical correlations between x (samples, a) and y (samples, b), largest first.
+
+    Orthonormalise each (centred) set, then the singular values of Qx' Qy are the correlations. Rank-deficient
+    inputs (e.g. two channels that are identical) are handled by dropping the redundant directions.
+    """
+
+    def basis(m):
+        m = m - m.mean(axis=0)
+        u, sv, _ = np.linalg.svd(m, full_matrices=False)
+        return (
+            u[:, sv > 1e-10 * max(sv[0], 1e-300)] if sv.size and sv[0] > 0 else u[:, :0]
+        )
+
+    qx, qy = basis(np.asarray(x, float)), basis(np.asarray(y, float))
+    if qx.shape[1] == 0 or qy.shape[1] == 0:
+        return np.zeros(0)
+    return np.clip(np.linalg.svd(qx.T @ qy, compute_uv=False), 0.0, 1.0)
+
+
+def _harmonics_for(freq, cfg: SsvepConfig) -> int:
+    """How many harmonics fit below `max_harmonic_hz` (at least the fundamental)."""
+    return max(1, min(cfg.harmonics, int(cfg.max_harmonic_hz // freq)))
+
+
+def cca_rho(window, fs, freq, cfg: SsvepConfig | None = None) -> float:
+    """Standard CCA: the largest canonical correlation between the EEG (channels, samples) and sin/cos references."""
     cfg = cfg or SsvepConfig()
+    x = np.atleast_2d(np.asarray(window, dtype=float))
+    refs = reference_signals(freq, fs, x.shape[1], _harmonics_for(freq, cfg))
+    rho = canonical_correlations(x.T, refs.T)
+    return float(rho[0]) if rho.size else 0.0
+
+
+def filter_bank(window, fs, cfg: SsvepConfig):
+    """The window band-passed into `fb_subbands` sub-bands [fb_low_hz * k, fb_high_hz] (4th-order Chebyshev, zero phase)."""
+    from scipy.signal import cheby1, sosfiltfilt
+
+    x = np.atleast_2d(np.asarray(window, dtype=float))
+    high = min(cfg.fb_high_hz, 0.9 * fs / 2)
+    bands = []
+    for k in range(1, cfg.fb_subbands + 1):
+        low = cfg.fb_low_hz * k
+        if low >= high * 0.9:
+            break
+        sos = cheby1(4, 1, [low, high], btype="bandpass", fs=fs, output="sos")
+        bands.append(sosfiltfilt(sos, x, axis=1))
+    return bands or [x]
+
+
+def fbcca_stat(window, fs, freq, cfg: SsvepConfig | None = None) -> float:
+    """Filter-bank CCA statistic in 0..1: sum_n w(n) rho_n^2 / sum_n w(n), with w(n) = n^-a + b."""
+    cfg = cfg or SsvepConfig()
+    bands = filter_bank(window, fs, cfg)
+    weights = np.array([n**-cfg.fb_a + cfg.fb_b for n in range(1, len(bands) + 1)])
+    rhos = np.array([cca_rho(b, fs, freq, cfg) for b in bands])
+    return float(np.sum(weights * rhos**2) / np.sum(weights))
+
+
+def _correlation_to_db(r2) -> float:
+    """Map a squared correlation (0..1) to a dB scale, 10 log10(r2 / (1 - r2)): like an SNR, so the same
+    calibration (baseline + spread, in dB) applies to every method."""
+    r2 = min(max(float(r2), 1e-6), 1.0 - 1e-6)
+    return 10.0 * math.log10(r2 / (1.0 - r2))
+
+
+def ssvep_score_db(window, fs, freq, cfg: SsvepConfig | None = None) -> float:
+    """How strongly is there an SSVEP at `freq`, in dB, for an EEG window shaped (channels, samples)?
+
+    cfg.method picks the measure: "psd" (peak against neighbouring frequencies), "cca" (canonical correlation
+    with sin/cos references) or "fbcca" (filter-bank CCA). All return a dB-like score that rises with the
+    response, so the calibration and decision logic below does not care which one is used.
+    """
+    cfg = cfg or SsvepConfig()
+    if cfg.method == "cca":
+        return _correlation_to_db(cca_rho(window, fs, freq, cfg) ** 2)
+    if cfg.method == "fbcca":
+        return _correlation_to_db(fbcca_stat(window, fs, freq, cfg))
+    if cfg.method == "psd":
+        return _psd_score_db(window, fs, freq, cfg)
+    raise ValueError(f"unknown SSVEP method {cfg.method!r}: use psd, cca or fbcca")
+
+
+def _psd_score_db(window, fs, freq, cfg: SsvepConfig) -> float:
+    """Power-spectrum measure: SNR in dB of the peak at `freq` (and harmonics) against the neighbouring bands."""
     x = np.atleast_2d(np.asarray(window, dtype=float))
     n = x.shape[1]
     x = (x - x.mean(axis=1, keepdims=True)) * np.hanning(n)
@@ -133,9 +245,8 @@ class SsvepDetector:
         spread = 1.4826 * median(abs(v - med) for v in values)  # robust sigma
         rise = max(cfg.k_spread * spread, cfg.min_rise_db)
         self.baseline = med
-        self.threshold = min(
-            cfg.max_threshold_db, max(cfg.min_threshold_db, med + rise)
-        )
+        floor = -math.inf if cfg.min_threshold_db is None else cfg.min_threshold_db
+        self.threshold = min(cfg.max_threshold_db, max(floor, med + rise))
         self.release = med + cfg.release_frac * (self.threshold - med)
         self.calibrated = True
         self._scores.clear()
@@ -152,10 +263,12 @@ class SsvepDetector:
         """Feed one score (or None just to advance time)."""
         cfg = self.cfg
         if score is not None and math.isfinite(score):
+            if self._last_t is not None and t - self._last_t > cfg.stale_s:
+                self._scores.clear()  # scores from before a gap say nothing about now
             self._scores.append(score)
             self._last_t = t
         signal_ok = self._last_t is not None and t - self._last_t <= cfg.stale_s
-        smooth = sum(self._scores) / len(self._scores) if self._scores else 0.0
+        smooth = median(self._scores) if self._scores else 0.0
         triggered = False
 
         if not self.calibrated:
@@ -269,11 +382,14 @@ class SsvepSelector:
         if scores is not None and len(scores) != self.n:
             raise ValueError(f"expected {self.n} scores, got {len(scores)}")
         if scores is not None and all(math.isfinite(v) for v in scores):
+            if self._last_t is not None and t - self._last_t > cfg.stale_s:
+                for q in self._scores:
+                    q.clear()  # scores from before a gap say nothing about now
             for q, v in zip(self._scores, scores, strict=True):
                 q.append(v)
             self._last_t = t
         signal_ok = self._last_t is not None and t - self._last_t <= cfg.stale_s
-        smooth = [sum(q) / len(q) if q else 0.0 for q in self._scores]
+        smooth = [median(q) if q else 0.0 for q in self._scores]
 
         if self.calibrated and signal_ok and all(self._scores):
             self._decide(t, smooth)

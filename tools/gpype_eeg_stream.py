@@ -32,7 +32,7 @@ STREAM_NAME = "NightDriveEEG"
 SAMPLING_RATE = 250
 
 # Nominal Unicorn layout: Fz, C3, Cz, C4, Pz, PO7, Oz, PO8. Verify on the real device.
-OCCIPITAL_CHANNELS = [1,2,3,4,5, 6, 7]  # PO7, Oz, PO8
+OCCIPITAL_CHANNELS = [5, 6, 7]  # PO7, Oz, PO8
 
 
 def build_pipeline(args: argparse.Namespace) -> gp.Pipeline:
@@ -47,13 +47,13 @@ def build_pipeline(args: argparse.Namespace) -> gp.Pipeline:
             noise_amplitude=10,
         )
     else:
-        source = gp.HybridBlack(serial=args.serial, enable_oscar=True)
+        source = gp.HybridBlack(serial=args.serial, enable_oscar=args.oscar)
 
     router = gp.Router(
         input_channels=gp.Router.ALL,
         output_channels={"OCC": args.channels},
     )
-    bandpass = gp.Bandpass(f_lo=0.5, f_hi=50)
+    bandpass = gp.Bandpass(f_lo=3, f_hi=40)
     mains = gp.Bandstop(f_lo=args.mains - 2, f_hi=args.mains + 2)
     sender = gp.LSLSender(stream_name=args.name)
 
@@ -70,10 +70,18 @@ def main() -> None:
         "--serial", help="Unicorn serial, e.g. UN-2024.01.01 (default: first found)"
     )
     ap.add_argument(
+        "--simulate", action="store_true", help="use a synthetic source, no headset"
+    )
+    ap.add_argument(
         "--freq",
         type=float,
         default=S.HEADLIGHT_BUTTON_HZ,
         help="tone frequency for --simulate",
+    )
+    ap.add_argument(
+        "--oscar",
+        action="store_true",
+        help="g.Pype OSCAR artifact removal on the headset stream (off by default: not checked against SSVEP)",
     )
     ap.add_argument("--name", default=STREAM_NAME, help="LSL stream name")
     ap.add_argument(

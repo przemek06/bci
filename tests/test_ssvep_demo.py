@@ -152,8 +152,10 @@ def test_model_calibrates_then_reports_the_button_being_looked_at():
 
 
 def test_no_button_is_ever_reported_that_is_not_being_looked_at():
-    model, src, clock = make()
-    run(model, clock, 12.0)
+    model, src, clock = make(
+        calibration_s=10.0
+    )  # the demo's default: 6 s is too short a baseline
+    run(model, clock, 16.0)
     seen = []
     for hz in DEFAULT_FREQS:
         want = DEFAULT_FREQS.index(hz)

@@ -16,6 +16,13 @@ DIM = (120, 128, 170)
 ACCENT = (255, 120, 90)
 GOOD = (120, 255, 160)
 BAD = (255, 90, 80)
+CONFETTI = (
+    (255, 120, 90),
+    (120, 255, 160),
+    (255, 220, 90),
+    (120, 200, 255),
+    (255, 120, 200),
+)
 WARN = (255, 190, 60)
 
 
@@ -120,6 +127,14 @@ class MenuScene:
             DIM,
             center=(S.W // 2, 66),
         )
+        if self.app.highscore.best:
+            draw_text(
+                surf,
+                f"HIGH SCORE  {self.app.highscore.best}",
+                self.app.font_small,
+                ACCENT,
+                center=(S.W // 2, 76),
+            )
         for i, label in enumerate(self.options):
             selected = i == self.selected
             text = f"> {label} <" if selected else label
@@ -179,6 +194,9 @@ class DriveScene:
         )
         self.auto_timer = self.rng.uniform(*S.AUTO_EVENT_RANGE)
         self.elapsed = 0.0
+        self.best_at_start = app.highscore.best  # the record to beat in this run
+        self.record_left = 0.0  # seconds left of the "new high score" banner
+        self._record_announced = False
         self.gaze_monitor = GazeMonitor()
         self.cop = CopChallenge(app, world)
         self.cop_rng = random.Random(None if app.seed is None else app.seed + 2)
@@ -201,6 +219,37 @@ class DriveScene:
         if self.director.trigger(event):
             self.app.sfx.play("riser")
             self.app.sfx.play_appear(self.director.event.name)
+
+    def end_run(self):
+        """The run is over (death, ESC, or the window closed): keep the score if it is a new best."""
+        return self.app.highscore.submit(self.world.score.display)
+
+    def _check_record(self, dt):
+        """Congratulate the moment the score passes the best of earlier runs (once per run)."""
+        self.record_left = max(0.0, self.record_left - dt)
+        if (
+            not self._record_announced
+            and self.best_at_start > 0
+            and self.world.score.display > self.best_at_start
+        ):
+            self._record_announced = True
+            self.record_left = S.RECORD_BANNER_S
+            self.app.sfx.play("saved")
+
+    def _draw_record_banner(self, surf):
+        """The best score itself is only shown on the menu and the end screen, never while driving."""
+        if self.record_left > 0:
+            flash = int(self.elapsed * 4) % 2 == 0
+            draw_text(
+                surf,
+                "NEW HIGH SCORE!",
+                self.app.font_big,
+                GOOD if flash else ACCENT,
+                center=(S.W // 2, 104),
+            )
+            draw_text(
+                surf, "CONGRATULATIONS!", self.app.font, TEXT, center=(S.W // 2, 122)
+            )
 
     @property
     def keys_active(self):
@@ -233,6 +282,7 @@ class DriveScene:
             self.cop.reset()
             self.ghost_audio.stop()
             self.roadside.reset()
+            self.end_run()
             self.app.set_scene(MenuScene(self.app, self.world))
         elif event.key == pygame.K_RETURN:  # open the door for a hitchhiker
             self.roadside.pick_up()
@@ -274,6 +324,7 @@ class DriveScene:
             self.director.pass_by_focus()
         self.world.update(dt)
         self.world.score.update(dt)
+        self._check_record(dt)
         if S.HEADLIGHTS_ENABLED and self.app.light_switch.update(dt):
             self.toggle_lights()
         self.world.button_hover = S.HEADLIGHTS_ENABLED and self.app.light_switch.hover
@@ -404,6 +455,7 @@ class DriveScene:
         self._draw_roadside_hud(surf)
         self.ghost.draw(surf)
         self.cop.draw(surf)
+        self._draw_record_banner(surf)
         if self.elapsed < 5:
             alpha = 255 if self.elapsed < 3.5 else int(255 * (5 - self.elapsed) / 1.5)
             hint = self.app.font_small.render("ESC - MENU    C - LOOK AWAY", False, DIM)
@@ -467,14 +519,19 @@ class DriveScene:
         # border goes from white to red as time runs out
         r = qte.remaining
         color = (255, int(80 + 175 * r), int(80 + 175 * r))
+        if not show_letter:
+            # BCI mode: nothing to press, so no letter box and no countdown bar: just the cue
+            # (it goes from white to red as time runs out). The only bar is the focus meter.
+            draw_text(surf, "FOCUS!", self.app.font_big, color, center=(cx, 24))
+            draw_text(
+                surf, "WATCH OUT ON THE ROAD!", self.app.font, TEXT, center=(cx, 44)
+            )
+            return
         box = pygame.Rect(0, 0, 44, 44)
         box.midtop = (cx, top)
         pygame.draw.rect(surf, (6, 8, 20), box)
         pygame.draw.rect(surf, color, box, 2)
-        if show_letter:
-            draw_text(surf, qte.letter, self.app.font_title, color, center=box.center)
-        else:  # BCI mode: no letter to press, just the cue (the countdown bar below stays)
-            draw_text(surf, "FOCUS", self.app.font_small, color, center=box.center)
+        draw_text(surf, qte.letter, self.app.font_title, color, center=box.center)
         bar = pygame.Rect(0, 0, 64, 5)
         bar.midtop = (cx, box.bottom + 4)
         pygame.draw.rect(surf, (6, 8, 20), bar)
@@ -498,6 +555,21 @@ class GameOverScene:
         app.sfx.play_scare(event.name)
         self.t = 0.0
         self.rng = random.Random()
+        self.previous_best = app.highscore.best
+        self.new_record = app.highscore.submit(world.score.display)
+        self._chimed = False
+        crng = random.Random(
+            7
+        )  # confetti for a new record: x, fall speed, start offset, colour
+        self.confetti = [
+            (
+                crng.randrange(S.W),
+                crng.uniform(30, 80),
+                crng.uniform(0, S.H),
+                crng.choice(CONFETTI),
+            )
+            for _ in range(70)
+        ]
 
     @property
     def can_continue(self):
@@ -517,6 +589,13 @@ class GameOverScene:
     def update(self, dt):
         self.t += dt
         self.world.update(dt)
+        if (
+            self.new_record
+            and not self._chimed
+            and self.t > S.JUMPSCARE_TIME + S.GAME_OVER_FADE
+        ):
+            self._chimed = True  # a soft ding as the game-over screen appears
+            self.app.sfx.play("saved")
 
     def draw(self, surf):
         surf.fill((0, 0, 0))
@@ -557,27 +636,60 @@ class GameOverScene:
             veil.fill((0, 0, 0, int(255 * fade)))
             surf.blit(veil, (0, 0))
 
+    def _draw_confetti(self, surf):
+        for x, speed, phase, color in self.confetti:
+            y = (phase + self.t * speed) % S.H
+            surf.fill(color, (x, int(y), 2, 2))
+
     def _draw_game_over(self, surf):
         cx = S.W // 2
         mins, secs = divmod(int(self.survived), 60)
+        if self.new_record:
+            self._draw_confetti(surf)
         draw_text(
             surf,
             "GAME OVER",
             self.app.font_title,
             BAD,
-            center=(cx, 40),
+            center=(cx, 34),
             shadow=(40, 6, 10),
         )
-        draw_text(surf, self.event.over_text, self.app.font, TEXT, center=(cx, 74))
+        draw_text(surf, self.event.over_text, self.app.font, TEXT, center=(cx, 60))
         draw_text(
             surf,
             f"SCORE  {self.world.score.display}",
             self.app.font,
             ACCENT,
-            center=(cx, 100),
+            center=(cx, 82),
         )
+        if self.new_record:
+            flash = int(self.t * 3) % 2 == 0
+            draw_text(
+                surf,
+                "NEW HIGH SCORE!",
+                self.app.font_big,
+                GOOD if flash else ACCENT,
+                center=(cx, 102),
+            )
+            draw_text(surf, "CONGRATULATIONS!", self.app.font, TEXT, center=(cx, 118))
+            if self.previous_best:
+                draw_text(
+                    surf,
+                    f"PREVIOUS BEST  {self.previous_best}",
+                    self.app.font_small,
+                    DIM,
+                    center=(cx, 130),
+                )
+        else:
+            draw_text(
+                surf,
+                f"HIGH SCORE  {self.app.highscore.best}",
+                self.app.font,
+                DIM,
+                center=(cx, 102),
+            )
         draw_text(
-            surf, f"TIME  {mins}:{secs:02d}", self.app.font, DIM, center=(cx, 118)
+            surf, f"TIME  {mins}:{secs:02d}", self.app.font, DIM, center=(cx, 142)
         )
         if self.can_continue and int(self.t * 2) % 2 == 0:
             draw_text(
@@ -585,7 +697,7 @@ class GameOverScene:
                 "ENTER - DRIVE AGAIN",
                 self.app.font_small,
                 ACCENT,
-                center=(cx, 150),
+                center=(cx, 156),
             )
         if self.can_continue:
-            draw_text(surf, "ESC - MENU", self.app.font_small, DIM, center=(cx, 164))
+            draw_text(surf, "ESC - MENU", self.app.font_small, DIM, center=(cx, 168))

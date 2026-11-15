@@ -19,3 +19,9 @@ def headlights_default():
 def _headlights_enabled_for_tests(request, monkeypatch):
     if "headlights_default" not in request.fixturenames:
         monkeypatch.setattr(S, "HEADLIGHTS_ENABLED", True)
+
+
+@pytest.fixture(autouse=True)
+def _highscore_in_a_temp_dir(tmp_path, monkeypatch):
+    """Tests must never read or write the real data/highscore.json."""
+    monkeypatch.setattr(S, "HIGHSCORE_FILE", str(tmp_path / "highscore.json"))

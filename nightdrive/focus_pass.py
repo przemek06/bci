@@ -176,9 +176,9 @@ class FocusPass:
         log(f"[attention] {self.source.debug_text}  |  {state}")
 
     @staticmethod
-    def _label(surf, font, text: str) -> None:
+    def _label(surf, font, text: str, y: int = 79) -> None:
         img = font.render(text, False, CYAN)
-        rect = img.get_rect(center=(S.W // 2, 79))
+        rect = img.get_rect(center=(S.W // 2, y))
         surf.blit(font.render(text, False, SHADOW), rect.move(1, 1))
         surf.blit(img, rect)
 
@@ -190,18 +190,24 @@ class FocusPass:
         hint = (
             "OR FOCUS" if keys_enabled else "FOCUS"
         )  # "OR" only while the keys also work
-        if (
-            not self.meter.counting
-        ):  # settling: just the hint, no numbers and no bar yet
-            self._label(surf, font, hint)
+        # With the letter box (keys also work) the meter sits under it; in the focus-only mode
+        # the top text is the cue, so the meter sits right below that.
+        label_y, bar_y = (79, 86) if keys_enabled else (68, 76)
+        if not self.meter.counting:  # settling: no numbers and no bar yet
+            if (
+                keys_enabled
+            ):  # just the "OR FOCUS" hint (the focus-only mode shows nothing yet)
+                self._label(surf, font, hint, label_y)
             return
         avg = self.meter.avg_level
         level = (
             self.att.level if avg is None else avg
         )  # show what the rule actually compares
-        self._label(surf, font, f"{hint}  {level:.1f} / {self.cfg.pass_level:.1f}")
+        self._label(
+            surf, font, f"{hint}  {level:.1f} / {self.cfg.pass_level:.1f}", label_y
+        )
         bar = pygame.Rect(0, 0, 64, 5)
-        bar.midtop = (S.W // 2, 86)
+        bar.midtop = (S.W // 2, bar_y)
         pygame.draw.rect(surf, (6, 8, 20), bar)
         fill = int((bar.w - 2) * self.meter.progress)
         pygame.draw.rect(surf, CYAN, (bar.x + 1, bar.y + 1, fill, bar.h - 2))

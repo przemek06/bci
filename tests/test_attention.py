@@ -627,7 +627,10 @@ def test_in_the_bci_mode_focus_passes_and_no_letter_is_drawn(monkeypatch):
     letter = drive.director.qte.letter
     drawn.clear()
     run(0.1)
-    assert "FOCUS" in drawn and letter not in drawn  # the cue replaces the letter
+    assert (
+        "FOCUS!" in drawn and "WATCH OUT ON THE ROAD!" in drawn
+    )  # a text, not a letter box
+    assert letter not in drawn
     run(
         drive.focus.cfg.delay_s + drive.focus.cfg.qte_window_s,
     )
@@ -656,4 +659,50 @@ def test_if_the_signal_is_lost_mid_event_the_keys_come_back_as_a_fallback():
     assert drive.keys_active  # never an unwinnable event
     drive.handle_event(key_of(drive.director.qte.letter))
     assert drive.director.qte.result == SUCCESS and drive.director.qte.via == "key"
+    pygame.quit()
+
+
+# --- the focus-only prompt: a text, and the focus meter is the only bar ---------------------
+
+
+def _is_black(surface):
+    return not any(pygame.image.tobytes(surface, "RGB"))
+
+
+def test_in_the_bci_mode_the_prompt_is_a_text_with_no_box_and_no_countdown_bar():
+    _app, drive, run = start_bci_drive(direction=-1)
+    run(0.5)
+    drive.on_distracted()
+    qte = drive.director.qte
+    blank = pygame.Surface((S.W, S.H))
+    drive._draw_prompt(blank, qte, show_letter=False)
+    # the countdown bar sat at about y=64 under the 44 px box: nothing may be drawn there
+    strip = blank.subsurface(pygame.Rect(S.W // 2 - 40, 58, 80, 20))
+    assert _is_black(strip)
+    boxed = pygame.Surface((S.W, S.H))
+    drive._draw_prompt(
+        boxed, qte, show_letter=True
+    )  # the keys mode still has box + bar
+    assert not _is_black(boxed.subsurface(pygame.Rect(S.W // 2 - 40, 58, 80, 20)))
+    pygame.quit()
+
+
+def test_in_the_bci_mode_the_focus_meter_shows_only_after_the_settle_time():
+    pygame.font.init()
+    font = pygame.font.Font(None, 14)
+    f = FocusPass(SimpleNamespace(attention=FakeSource(HIGH), font_small=font))
+    f.update(0.05, qte_active=False)
+    surf = pygame.Surface((S.W, S.H))
+    for _ in range(round(DELAY * 0.5 / 0.05)):
+        f.update(0.05, qte_active=True)
+    surf.fill((0, 0, 0))
+    f.draw(surf, keys_enabled=False)
+    assert _is_black(surf)  # no hint, no bar while settling
+    for _ in range(round(DELAY / 0.05)):
+        f.update(0.05, qte_active=True)
+    surf.fill((0, 0, 0))
+    f.draw(surf, keys_enabled=False)
+    assert not _is_black(
+        surf.subsurface(pygame.Rect(S.W // 2 - 40, 62, 80, 22))
+    )  # label + bar
     pygame.quit()

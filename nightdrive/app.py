@@ -15,6 +15,7 @@ from .gaze.calibration import GazeCalibration
 from .gaze.mouse_source import MouseGazeSource
 from .gaze.tracker import GazeTracker
 from .gaze.webcam_source import WebcamGazeSource, detect_cameras, parse_camera
+from .highscore import HighScore
 from .light_switch import make_light_switch
 from .scenes import MenuScene
 from .sfx import Sfx
@@ -64,6 +65,7 @@ class App:
         # attention index -> focus can pass quick-time events (see focus_pass.py); "off" = unchanged
         self.attention = make_attention_source(attention, log=attention_log)
         self.attention.start()
+        self.highscore = HighScore()  # the best score, kept in data/highscore.json
         # Letter-key quick-time events are the NO-BCI mode. With any attention source (bci, or the
         # keyboard / random simulations of it) the keys are off and the player passes by focus.
         self.qte_keys = attention == "off"
@@ -199,6 +201,9 @@ class App:
                 self.scene.draw(self.canvas)
                 self.present()
         self.eyes.stop()
+        end_run = getattr(self.scene, "end_run", None)
+        if end_run:  # the window was closed mid-drive: keep a new best
+            end_run()
         self.attention.stop()
         self.light_switch.stop()
         pygame.quit()

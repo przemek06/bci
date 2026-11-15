@@ -97,6 +97,10 @@ AMBIENT_ONESHOT_RANGE = (40.0, 90.0)  # seconds between them
 
 # Eye tracking (optional; off by default)
 GAZE_CALIBRATION_FILE = "data/gaze_calibration.json"
+HIGHSCORE_FILE = "data/highscore.json"  # the best score, kept between runs
+RECORD_BANNER_S = (
+    4.0  # seconds the "NEW HIGH SCORE" banner stays up when you pass the record mid-run
+)
 GAZE_MODEL_FILE = "data/models/face_landmarker.task"
 GAZE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 GAZE_SMOOTHING = 0.25  # EMA factor per update (higher = snappier, jitterier)

@@ -61,3 +61,40 @@ def test_the_mock_refuses_to_start_next_to_real_streams(monkeypatch):
 def test_the_game_never_refers_to_the_mock():
     for path in (ROOT / "nightdrive").rglob("*.py"):
         assert "mock_eeg" not in path.read_text(encoding="utf-8"), path
+
+
+def test_the_auto_scenario_starts_calm_long_enough_for_a_baseline_then_cycles_forever():
+    assert mock.auto_state(0.0) == ("calm", False)
+    first_seconds = mock.AUTO_SCHEDULE[0][2]
+    assert (
+        mock.AUTO_SCHEDULE[0][0] == "calm" and first_seconds >= 25
+    )  # the game's calibration takes ~25 s
+    assert mock.auto_state(first_seconds - 0.1) == ("calm", False)
+    assert mock.auto_state(first_seconds + 0.1) == ("focused", False)
+    total = sum(seconds for _, _, seconds in mock.AUTO_SCHEDULE)
+    assert mock.auto_state(total + 1.0) == mock.auto_state(1.0)  # and round again
+    assert mock.auto_state(total * 3 + first_seconds + 0.1) == ("focused", False)
+
+
+def test_the_auto_scenario_uses_every_state_including_closed_eyes():
+    states = {state for state, _, _ in mock.AUTO_SCHEDULE}
+    assert states == set(mock.STATE_GAIN)  # calm, focused and drowsy all appear
+    assert any(closed for _, closed, _ in mock.AUTO_SCHEDULE)  # the ghost can be passed
+
+
+def test_the_mock_imports_only_pylsl_and_the_standard_library_so_any_computer_can_run_it():
+    import ast
+
+    tree = ast.parse(
+        (ROOT / "tools" / "mock_eeg_streams.py").read_text(encoding="utf-8")
+    )
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module.split(".")[0])
+    assert modules - {"pylsl"} <= set(
+        sys.stdlib_module_names
+    )  # nothing else needs installing
+    assert "nightdrive" not in modules and "pygame" not in modules

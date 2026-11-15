@@ -9,6 +9,14 @@ Nothing in the game refers to this file, so the real game is simply: start the r
 (tools/gpype_alpha_stream.py) instead of this script. If real streams are already up, this script
 refuses to start so the two can never be mixed.
 
+Sending to ANOTHER computer (instead of real data, for testing the receiving side):
+    This script needs only `pip install pylsl` and never touches the game, so run it on any computer.
+    LSL streams are visible to every computer on the same network, so the receiver just reads them
+    as usual (the game, or `python tools/lsl_list_streams.py --samples 3` to check). Run
+    `python tools/mock_eeg_streams.py --auto --no-keys` for a hands-free demo that cycles through
+    calm / focused / drowsy / eyes closed. If the other computer sees nothing: same subnet? firewall
+    (allow python)? and note that guest Wi-Fi often blocks device-to-device traffic and multicast.
+
 Control the "player" with keys in THIS window (Windows: single keys; elsewhere: letter + Enter):
     c   toggle eyes closed        (alpha jumps: the ghost can be passed)
     f   focused                   (beta + gamma up: focus passes a quick-time event)
@@ -19,6 +27,7 @@ Control the "player" with keys in THIS window (Windows: single keys; elsewhere: 
 
 import argparse
 import random
+import socket
 import sys
 import threading
 import time
@@ -101,8 +110,47 @@ class Controls:
             return
         print(f"  -> {self.describe()}", flush=True)
 
+    def apply(self, state: str, eyes_closed: bool) -> None:
+        """Set the state from the --auto schedule (prints only when something changes)."""
+        if (state, eyes_closed) != (self.state, self.eyes_closed):
+            self.state, self.eyes_closed = state, eyes_closed
+            print(f"  -> {self.describe()}  (auto)", flush=True)
+
     def describe(self) -> str:
         return f"attention: {self.state.upper()}   eyes: {'CLOSED' if self.eyes_closed else 'open'}"
+
+
+# --auto: a hands-free scenario, repeated forever: (attention state, eyes closed, seconds).
+# It starts calm for long enough to record a baseline (the game's calibration takes about 25 s).
+AUTO_SCHEDULE = (
+    ("calm", False, 30.0),
+    ("focused", False, 8.0),
+    ("calm", False, 12.0),
+    ("drowsy", False, 8.0),
+    ("calm", True, 8.0),  # eyes closed (the ghost)
+    ("calm", False, 10.0),
+)
+
+
+def auto_state(t: float) -> tuple[str, bool]:
+    """The scripted (state, eyes_closed) `t` seconds after the start of the --auto scenario."""
+    total = sum(seconds for _, _, seconds in AUTO_SCHEDULE)
+    t %= total
+    for state, closed, seconds in AUTO_SCHEDULE:
+        if t < seconds:
+            return state, closed
+        t -= seconds
+    return AUTO_SCHEDULE[-1][0], AUTO_SCHEDULE[-1][1]
+
+
+def local_address() -> str:
+    """This computer's address on the network the default route uses (no packet is sent)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+    except OSError:
+        return "unknown"
 
 
 def start_key_reader(controls: Controls) -> None:
@@ -147,6 +195,16 @@ def main() -> None:
         help="stop after N seconds (default: until you press q)",
     )
     ap.add_argument("--seed", type=int, help="seed for repeatable data")
+    ap.add_argument(
+        "--auto",
+        action="store_true",
+        help="hands-free: cycle calm / focused / drowsy / eyes closed on a schedule",
+    )
+    ap.add_argument(
+        "--no-keys",
+        action="store_true",
+        help="do not read the keyboard (unattended or background running)",
+    )
     args = ap.parse_args()
 
     found = real_streams_present()
@@ -170,13 +228,26 @@ def main() -> None:
         "MOCK headset streams are running (fake data). Keys here: c eyes closed | f focused | d drowsy | n calm | q quit"
     )
     print(f"  -> {controls.describe()}", flush=True)
-    start_key_reader(controls)
+    print(
+        f"Visible on the network from {socket.gethostname()} ({local_address()}): on another computer "
+        "run `python tools/lsl_list_streams.py --samples 3` to check.",
+        flush=True,
+    )
+    if args.auto:
+        print(
+            "AUTO scenario: calm 30 s, focused 8 s, calm 12 s, drowsy 8 s, eyes closed 8 s, calm 10 s, repeat.",
+            flush=True,
+        )
+    if not args.no_keys:
+        start_key_reader(controls)
 
     start = time.monotonic()
     nxt = start
     while not controls.quit and (
         args.seconds is None or time.monotonic() - start < args.seconds
     ):
+        if args.auto:
+            controls.apply(*auto_state(time.monotonic() - start))
         alpha_out.push_sample(alpha_sample(rng, controls.eyes_closed, args.noise))
         bands_out.push_sample(
             bands_sample(rng, controls.state, controls.eyes_closed, args.noise)
